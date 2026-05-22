@@ -64,6 +64,16 @@ export class GemmaBackend implements TranscriptionBackend {
   async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
     if (this.ready) return;
 
+    // Obsidian's Electron renderer is detected as a Node environment, so
+    // transformers.js would pick the onnxruntime-node backend — which cannot
+    // load its native binding inside a bundled plugin. Register the web
+    // runtime under the symbol transformers.js checks before that fallback.
+    const ortSymbol = Symbol.for("onnxruntime");
+    if (!(ortSymbol in globalThis)) {
+      const ortWeb: any = await import("onnxruntime-web/webgpu");
+      (globalThis as any)[ortSymbol] = ortWeb.default ?? ortWeb;
+    }
+
     // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
     const tfjs = await import("@huggingface/transformers");
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;

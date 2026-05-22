@@ -26,6 +26,12 @@ const ctx = await esbuild.context({
     "@lezer/lr",
     ...builtins,
   ],
+  // transformers.js statically imports onnxruntime-node, whose native binding
+  // cannot run inside a bundled plugin. Replace it with an empty stub; the web
+  // runtime is forced at load time in src/transcriber.ts.
+  alias: {
+    "onnxruntime-node": "./onnxruntime-node-stub.js",
+  },
   format: "cjs",
   target: "es2020",
   logLevel: "info",

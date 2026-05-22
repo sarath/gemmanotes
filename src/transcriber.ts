@@ -66,7 +66,7 @@ export class GemmaBackend implements TranscriptionBackend {
 
     // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
     const tfjs = await import("@huggingface/transformers");
-    const { AutoProcessor, AutoModelForImageTextToText, env } = tfjs as any;
+    const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;
 
     // Only allow remote model files; cache them in the browser Cache API so
     // subsequent loads are fully offline.
@@ -74,20 +74,21 @@ export class GemmaBackend implements TranscriptionBackend {
     env.useBrowserCache = true;
 
     const repo = MODEL_REPOS[this.variant];
-    const seenFiles = new Map<string, number>();
+    const seen = new Map<string, number>();
     const progress_callback = (p: any) => {
-      if (p.status === "progress" && typeof p.progress === "number") {
-        seenFiles.set(p.file, p.progress);
-        const avg =
-          [...seenFiles.values()].reduce((a, b) => a + b, 0) / seenFiles.size;
-        onProgress({ fraction: avg / 100, label: `Downloading ${p.file}` });
-      } else if (p.status === "ready" || p.status === "done") {
+      // transformers.js emits per-file "progress" events and may also emit an
+      // aggregate "progress_total"; handle whichever arrives.
+      if (typeof p?.progress === "number" && p.status !== "done") {
+        seen.set(p.file ?? p.status, p.progress);
+        const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
+        onProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
+      } else if (p?.status === "ready" || p?.status === "done") {
         onProgress({ fraction: 1, label: "Loading model into memory…" });
       }
     };
 
     this.processor = await AutoProcessor.from_pretrained(repo, { progress_callback });
-    this.model = await AutoModelForImageTextToText.from_pretrained(repo, {
+    this.model = await Gemma4ForConditionalGeneration.from_pretrained(repo, {
       dtype: "q4f16",
       device: this.device,
       progress_callback,
@@ -138,32 +139,31 @@ export class GemmaBackend implements TranscriptionBackend {
   }
 
   /**
-   * Run one generation pass.
-   *
-   * NOTE: the exact processor/model call surface for Gemma 4 audio in
-   * transformers.js should be confirmed against the model card's sample code;
-   * this follows the documented image-text-to-text pattern with an `audio`
-   * input added to `apply_chat_template`.
+   * Run one generation pass, following the transformers.js sample for
+   * `onnx-community/gemma-4-E*-it-ONNX`: `apply_chat_template` builds a prompt
+   * string, then the processor tokenizes it together with any media.
    */
   private async generate(messages: unknown, audio?: Float32Array): Promise<string> {
     if (!this.ready) throw new Error("Model is not loaded.");
 
-    const inputs = await this.processor.apply_chat_template(messages, {
+    const prompt = this.processor.apply_chat_template(messages, {
+      enable_thinking: false,
       add_generation_prompt: true,
-      tokenize: true,
-      return_dict: true,
-      ...(audio ? { audio: [audio] } : {}),
     });
 
-    const output = await this.model.generate({
+    // Signature: processor(prompt, image, audio, options).
+    const inputs = await this.processor(prompt, null, audio ?? null, {
+      add_special_tokens: false,
+    });
+
+    const outputs = await this.model.generate({
       ...inputs,
       max_new_tokens: 512,
       do_sample: false,
     });
 
-    const promptLen = inputs.input_ids.dims.at(-1);
     const decoded: string[] = this.processor.batch_decode(
-      output.slice(null, [promptLen, null]),
+      outputs.slice(null, [inputs.input_ids.dims.at(-1), null]),
       { skip_special_tokens: true },
     );
     return decoded[0]?.trim() ?? "";

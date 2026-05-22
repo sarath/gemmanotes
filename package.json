@@ -7,7 +7,13 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
   },
-  "keywords": ["obsidian", "plugin", "voice", "transcription", "gemma"],
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "voice",
+    "transcription",
+    "gemma"
+  ],
   "author": "Sarath Chandra",
   "license": "MIT",
   "devDependencies": {
@@ -18,6 +24,6 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.3.0"
+    "@huggingface/transformers": "^4.2.0"
   }
 }

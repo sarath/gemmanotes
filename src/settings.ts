@@ -65,6 +65,8 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             });
             this.display();
           } catch (e) {
+            // Log the full error (with stack) so it is inspectable in DevTools.
+            console.error("GemmaNotes: model load failed", e);
             downloadSetting.setDesc(`Download failed: ${String(e)}`);
             b.setDisabled(false);
             bar.hide();

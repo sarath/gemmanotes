@@ -81,6 +81,11 @@ export class GemmaBackend implements TranscriptionBackend {
       }
     }
 
+    // An earlier plugin build registered onnxruntime under this symbol. If it
+    // lingers in the renderer session, transformers.js takes the override
+    // branch, which leaves its device list empty. Clear it defensively.
+    delete (globalThis as any)[Symbol.for("onnxruntime")];
+
     let tfjs: any;
     try {
       // transformers.js is bundled; ONNX runtime WASM assets resolve from the CDN.

@@ -1,0 +1,23 @@
+{
+  "name": "gemmanotes",
+  "version": "0.1.0",
+  "description": "Push-to-talk voice notes for Obsidian, transcribed on-device with Gemma 4.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": ["obsidian", "plugin", "voice", "transcription", "gemma"],
+  "author": "Sarath Chandra",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "latest",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.3.0"
+  }
+}

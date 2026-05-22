@@ -1,0 +1,42 @@
+/* GemmaNotes styles */
+
+.gemmanotes-statusbar {
+  cursor: default;
+}
+
+.gemmanotes-statusbar.is-recording {
+  color: var(--text-error);
+}
+
+.gemmanotes-statusbar.is-transcribing {
+  color: var(--text-accent);
+}
+
+.gemmanotes-hint {
+  cursor: pointer;
+  color: var(--text-accent);
+}
+
+.gemmanotes-hint:hover {
+  text-decoration: underline;
+}
+
+.gemmanotes-ribbon.is-active svg {
+  color: var(--text-error);
+}
+
+.gemmanotes-download-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.gemmanotes-download-bar > div {
+  height: 100%;
+  background: var(--interactive-accent);
+  width: 0%;
+  transition: width 0.2s ease;
+}

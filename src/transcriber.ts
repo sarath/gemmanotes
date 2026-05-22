@@ -64,41 +64,16 @@ export class GemmaBackend implements TranscriptionBackend {
   async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
     if (this.ready) return;
 
-    // transformers.js decides Node-vs-browser once, at module-eval time, from
-    // `process.release.name`. Obsidian's Electron renderer reports "node",
-    // which routes ONNX to the onnxruntime-node backend (no usable native
-    // binding in a bundled plugin) and leaves the device list empty. Mask it
-    // for the duration of the one-time import so the onnxruntime-web path and
-    // browser cache/fetch code are used instead.
-    const release = (globalThis as any).process?.release;
-    let masked = false;
-    if (release?.name === "node") {
-      try {
-        release.name = "obsidian";
-        masked = true;
-      } catch {
-        /* release.name not writable — fall through and hope for the best */
-      }
-    }
-
     // An earlier plugin build registered onnxruntime under this symbol. If it
     // lingers in the renderer session, transformers.js takes the override
     // branch, which leaves its device list empty. Clear it defensively.
     delete (globalThis as any)[Symbol.for("onnxruntime")];
 
-    let tfjs: any;
-    try {
-      // transformers.js is bundled; ONNX runtime WASM assets resolve from the CDN.
-      tfjs = await import("@huggingface/transformers");
-    } finally {
-      if (masked) {
-        try {
-          release.name = "node";
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    // transformers.js is bundled with IS_NODE_ENV forced to false at build
+    // time (see esbuild.config.mjs's force-browser-env plugin), so it uses the
+    // onnxruntime-web backend and browser cache/fetch — required in Obsidian's
+    // Electron renderer. ONNX runtime WASM assets resolve from the CDN.
+    const tfjs: any = await import("@huggingface/transformers");
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs;
 
     // Only allow remote model files; cache them in the browser Cache API so

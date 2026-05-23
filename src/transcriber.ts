@@ -236,9 +236,7 @@ export class WhisperBackend implements TranscriptionBackend {
   async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
     if (!this.ready) throw new Error("Whisper model is not loaded.");
 
-    const lang = opts.language === "auto" ? null : opts.language;
     const result = await this.pipeline(audio, {
-      language: lang,
       task: "transcribe",
     });
 

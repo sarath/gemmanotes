@@ -122,20 +122,22 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("Language")
-      .setDesc(
-        'BCP-47 code (e.g. "en", "hi", "es"), or "auto" to detect per recording.',
-      )
-      .addText((t) =>
-        t
-          .setValue(s.language)
-          .setPlaceholder("auto")
-          .onChange(async (v) => {
-            s.language = v.trim() || "auto";
-            await this.plugin.saveSettings();
-          }),
-      );
+    if (s.transcriptionModel !== "Whisper-Tiny") {
+      new Setting(containerEl)
+        .setName("Language")
+        .setDesc(
+          'BCP-47 code (e.g. "en", "hi", "es"), or "auto" to detect per recording.',
+        )
+        .addText((t) =>
+          t
+            .setValue(s.language)
+            .setPlaceholder("auto")
+            .onChange(async (v) => {
+              s.language = v.trim() || "auto";
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
 
     // --- Insertion ---------------------------------------------------------
     new Setting(containerEl).setName("Insertion").setHeading();

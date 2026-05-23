@@ -51,14 +51,14 @@ export const DEFAULT_SETTINGS: GemmaNotesSettings = {
 export const MODEL_REPOS: Record<ModelVariant, string> = {
   E2B: "onnx-community/gemma-4-E2B-it-ONNX",
   E4B: "onnx-community/gemma-4-E4B-it-ONNX",
-  "Whisper-Tiny": "onnx-community/whisper-tiny",
+  "Whisper-Tiny": "onnx-community/whisper-tiny.en",
 };
 
 /** Approximate on-disk download size, shown in settings. */
 export const MODEL_SIZES: Record<ModelVariant, string> = {
   E2B: "~3.2 GB",
   E4B: "~5 GB",
-  "Whisper-Tiny": "~75 MB",
+  "Whisper-Tiny": "~40 MB",
 };
 
 /** A unit of transcription work flowing through the FIFO queue. */

@@ -1,6 +1,7 @@
 /** GemmaNotes — push-to-talk voice notes transcribed on-device with Gemma 4. */
 
-import { MarkdownView, Notice, Plugin, TFile } from "obsidian";
+import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile } from "obsidian";
+import * as path from "path";
 import { DEFAULT_SETTINGS } from "./types";
 import type { GemmaNotesSettings, TranscriptionJob } from "./types";
 import { GemmaNotesSettingTab } from "./settings";
@@ -93,12 +94,48 @@ export default class GemmaNotesPlugin extends Plugin {
       this.settings.transcriptionModel,
       this.settings.rewriteModel,
       this.webGPUAvailable,
+      this.getCacheDir(),
+    );
+
+    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
+    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
+    if (txDownloaded && rxDownloaded) {
+      const notice = new Notice("GemmaNotes: Loading models...", 0);
+      this.backend
+        .load((u) => {
+          notice.setMessage(`GemmaNotes: ${u.label}`);
+        }, false)
+        .then(() => {
+          notice.hide();
+          new Notice("GemmaNotes: Models loaded and ready.");
+        })
+        .catch((e) => {
+          notice.hide();
+          console.error("GemmaNotes: failed to auto-load backend", e);
+          new Notice(`GemmaNotes: Failed to load models (${String(e)})`);
+        });
+    }
+  }
+
+  getCacheDir(): string {
+    const adapter = this.app.vault.adapter;
+    if (adapter instanceof FileSystemAdapter) {
+      const vaultPath = adapter.getBasePath();
+      return path.join(
+        vaultPath,
+        this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
+        ".cache"
+      );
+    }
+    return path.join(
+      this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
+      ".cache"
     );
   }
 
   /** Download + load the selected model, reporting progress to the caller. */
   async downloadModel(onProgress: (u: ProgressUpdate) => void): Promise<void> {
-    await this.backend.load(onProgress);
+    await this.backend.load(onProgress, true);
     this.settings.downloadedModels[this.settings.transcriptionModel] = true;
     this.settings.downloadedModels[this.settings.rewriteModel] = true;
     await this.saveSettings();

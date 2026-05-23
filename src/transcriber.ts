@@ -39,7 +39,7 @@ export interface TranscriptionBackend {
   /** True once the model is downloaded and loaded into memory. */
   readonly ready: boolean;
   /** Download (if needed) and load the model. */
-  load(onProgress: (u: ProgressUpdate) => void): Promise<void>;
+  load(onProgress: (u: ProgressUpdate) => void, allowRemote?: boolean): Promise<void>;
   /** Transcribe a single <=30 s mono 16 kHz chunk. */
   transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string>;
   /** Rewrite already-transcribed text into tidy prose (text-only call). */
@@ -64,27 +64,32 @@ export class GemmaBackend implements TranscriptionBackend {
   private processor: any = null;
   private variant: ModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
+  private cacheDir: string;
 
-  constructor(variant: ModelVariant, useWebGPU: boolean) {
+  constructor(variant: ModelVariant, useWebGPU: boolean, cacheDir: string) {
     this.variant = variant;
     this.device = useWebGPU ? "webgpu" : "wasm";
+    this.cacheDir = cacheDir;
   }
 
   get ready(): boolean {
     return this.model != null && this.processor != null;
   }
 
-  async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
+  async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.ready) return;
 
     // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
     const tfjs = await import("@huggingface/transformers");
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;
 
-    // Only allow remote model files; cache them in the browser Cache API so
-    // subsequent loads are fully offline.
+    // Only allow remote model files; cache them in the local plugin directory so
+    // subsequent loads are fully offline and persistent.
     env.allowLocalModels = false;
-    env.useBrowserCache = true;
+    env.useBrowserCache = false;
+    env.useFSCache = true;
+    env.cacheDir = this.cacheDir;
+    env.allowRemoteModels = allowRemote;
 
     // --- diagnostic: confirm ORT-Web wired up by the alias ---
     console.log("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
@@ -191,23 +196,28 @@ export class GemmaBackend implements TranscriptionBackend {
 export class WhisperBackend implements TranscriptionBackend {
   private pipeline: any = null;
   private device: "webgpu" | "wasm" = "wasm";
+  private cacheDir: string;
 
-  constructor(useWebGPU: boolean) {
+  constructor(useWebGPU: boolean, cacheDir: string) {
     this.device = useWebGPU ? "webgpu" : "wasm";
+    this.cacheDir = cacheDir;
   }
 
   get ready(): boolean {
     return this.pipeline != null;
   }
 
-  async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
+  async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.ready) return;
 
     const tfjs = await import("@huggingface/transformers");
     const { pipeline, env } = tfjs as any;
 
     env.allowLocalModels = false;
-    env.useBrowserCache = true;
+    env.useBrowserCache = false;
+    env.useFSCache = true;
+    env.cacheDir = this.cacheDir;
+    env.allowRemoteModels = allowRemote;
 
     const repo = MODEL_REPOS["Whisper-Tiny"];
     const seen = new Map<string, number>();
@@ -255,18 +265,19 @@ export class DualBackend implements TranscriptionBackend {
   constructor(
     txVariant: TranscriptionModelVariant,
     rxVariant: RewriteModelVariant,
-    useWebGPU: boolean
+    useWebGPU: boolean,
+    cacheDir: string
   ) {
     if (txVariant === "Whisper-Tiny") {
-      this.txBackend = new WhisperBackend(useWebGPU);
+      this.txBackend = new WhisperBackend(useWebGPU, cacheDir);
     } else {
-      this.txBackend = new GemmaBackend(txVariant, useWebGPU);
+      this.txBackend = new GemmaBackend(txVariant, useWebGPU, cacheDir);
     }
 
     if ((txVariant as string) === rxVariant) {
       this.rxBackend = this.txBackend;
     } else {
-      this.rxBackend = new GemmaBackend(rxVariant, useWebGPU);
+      this.rxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
     }
   }
 
@@ -274,9 +285,9 @@ export class DualBackend implements TranscriptionBackend {
     return this.txBackend.ready && this.rxBackend.ready;
   }
 
-  async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
+  async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.txBackend === this.rxBackend) {
-      await this.txBackend.load(onProgress);
+      await this.txBackend.load(onProgress, allowRemote);
     } else {
       onProgress({ fraction: 0.0, label: "Loading transcription model..." });
       await this.txBackend.load((u) => {
@@ -284,7 +295,7 @@ export class DualBackend implements TranscriptionBackend {
           fraction: u.fraction ? u.fraction * 0.5 : 0.25,
           label: `[Transcription] ${u.label}`,
         });
-      });
+      }, allowRemote);
 
       onProgress({ fraction: 0.5, label: "Loading rewriting model..." });
       await this.rxBackend.load((u) => {
@@ -292,7 +303,7 @@ export class DualBackend implements TranscriptionBackend {
           fraction: u.fraction ? 0.5 + u.fraction * 0.5 : 0.75,
           label: `[Rewriting] ${u.label}`,
         });
-      });
+      }, allowRemote);
 
       onProgress({ fraction: 1.0, label: "All models ready." });
     }

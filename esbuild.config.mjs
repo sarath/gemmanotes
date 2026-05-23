@@ -26,6 +26,13 @@ const ctx = await esbuild.context({
     "@lezer/lr",
     ...builtins,
   ],
+  // Obsidian runs in Electron renderer, where `process` exists — transformers.js
+  // takes its Node branch and tries to load `onnxruntime-node`'s native binding
+  // (which we don't ship). Redirect that import to ORT-Web so the same branch
+  // gets a working browser runtime.
+  alias: {
+    "onnxruntime-node": "onnxruntime-web/webgpu",
+  },
   format: "cjs",
   target: "es2020",
   logLevel: "info",

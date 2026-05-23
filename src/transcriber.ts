@@ -73,18 +73,10 @@ export class GemmaBackend implements TranscriptionBackend {
     env.allowLocalModels = false;
     env.useBrowserCache = true;
 
-    // --- diagnostic + Branch A test ---
-    console.log("[gn] env.backends:", env.backends);
-    console.log("[gn] env.backends.onnx:", env.backends?.onnx);
+    // --- diagnostic: confirm ORT-Web wired up by the alias ---
+    console.log("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
     console.log("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
-    console.log("[gn] wasmPaths before:", env.backends?.onnx?.wasm?.wasmPaths);
-    if (env.backends?.onnx?.wasm) {
-      env.backends.onnx.wasm.wasmPaths =
-        "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/";
-      env.backends.onnx.wasm.numThreads = 1;
-    }
-    console.log("[gn] wasmPaths after:", env.backends?.onnx?.wasm?.wasmPaths);
-    // --- end diagnostic ---
+    console.log("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
 
     const repo = MODEL_REPOS[this.variant];
     const seen = new Map<string, number>();

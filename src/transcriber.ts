@@ -228,7 +228,7 @@ export class WhisperBackend implements TranscriptionBackend {
 
     this.pipeline = await pipeline("automatic-speech-recognition", repo, {
       device: this.device,
-      dtype: "quantized",
+      dtype: "q8",
       progress_callback,
     });
     onProgress({ fraction: 1, label: "Model ready." });

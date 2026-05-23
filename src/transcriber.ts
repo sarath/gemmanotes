@@ -64,37 +64,32 @@ export class GemmaBackend implements TranscriptionBackend {
   private processor: any = null;
   private variant: ModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
-  private cacheDir: string;
+  private localModelPath: string;
 
-  constructor(variant: ModelVariant, useWebGPU: boolean, cacheDir: string) {
+  constructor(variant: ModelVariant, useWebGPU: boolean, localModelPath: string) {
     this.variant = variant;
     this.device = useWebGPU ? "webgpu" : "wasm";
-    this.cacheDir = cacheDir;
+    this.localModelPath = localModelPath;
   }
 
   get ready(): boolean {
     return this.model != null && this.processor != null;
   }
 
-  async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
+  async load(onProgress: (u: ProgressUpdate) => void, _allowRemote = false): Promise<void> {
     if (this.ready) return;
 
-    // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
     const tfjs = await import("@huggingface/transformers");
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;
 
-    // Only allow local or remote model files; cache them in the local plugin directory so
-    // subsequent loads are fully offline and persistent.
+    // Model files are pre-downloaded by ModelDownloader and served via a
+    // fetch() shim that intercepts URLs prefixed with `localModelPath`.
+    // transformers.js itself does no caching here.
     env.allowLocalModels = true;
+    env.allowRemoteModels = false;
     env.useBrowserCache = false;
-    env.useFSCache = true;
-    env.cacheDir = this.cacheDir;
-    env.allowRemoteModels = allowRemote;
-
-    // --- diagnostic: confirm ORT-Web wired up by the alias ---
-    console.log("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
-    console.log("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
-    console.log("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
+    env.useFSCache = false;
+    env.localModelPath = this.localModelPath;
 
     const repo = MODEL_REPOS[this.variant];
     const seen = new Map<string, number>();
@@ -196,28 +191,28 @@ export class GemmaBackend implements TranscriptionBackend {
 export class WhisperBackend implements TranscriptionBackend {
   private pipeline: any = null;
   private device: "webgpu" | "wasm" = "wasm";
-  private cacheDir: string;
+  private localModelPath: string;
 
-  constructor(useWebGPU: boolean, cacheDir: string) {
+  constructor(useWebGPU: boolean, localModelPath: string) {
     this.device = useWebGPU ? "webgpu" : "wasm";
-    this.cacheDir = cacheDir;
+    this.localModelPath = localModelPath;
   }
 
   get ready(): boolean {
     return this.pipeline != null;
   }
 
-  async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
+  async load(onProgress: (u: ProgressUpdate) => void, _allowRemote = false): Promise<void> {
     if (this.ready) return;
 
     const tfjs = await import("@huggingface/transformers");
     const { pipeline, env } = tfjs as any;
 
     env.allowLocalModels = true;
+    env.allowRemoteModels = false;
     env.useBrowserCache = false;
-    env.useFSCache = true;
-    env.cacheDir = this.cacheDir;
-    env.allowRemoteModels = allowRemote;
+    env.useFSCache = false;
+    env.localModelPath = this.localModelPath;
 
     const repo = MODEL_REPOS["Whisper-Tiny"];
     const seen = new Map<string, number>();
@@ -266,18 +261,18 @@ export class DualBackend implements TranscriptionBackend {
     txVariant: TranscriptionModelVariant,
     rxVariant: RewriteModelVariant,
     useWebGPU: boolean,
-    cacheDir: string
+    localModelPath: string
   ) {
     if (txVariant === "Whisper-Tiny") {
-      this.txBackend = new WhisperBackend(useWebGPU, cacheDir);
+      this.txBackend = new WhisperBackend(useWebGPU, localModelPath);
     } else {
-      this.txBackend = new GemmaBackend(txVariant, useWebGPU, cacheDir);
+      this.txBackend = new GemmaBackend(txVariant, useWebGPU, localModelPath);
     }
 
     if ((txVariant as string) === rxVariant) {
       this.rxBackend = this.txBackend;
     } else {
-      this.rxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
+      this.rxBackend = new GemmaBackend(rxVariant, useWebGPU, localModelPath);
     }
   }
 

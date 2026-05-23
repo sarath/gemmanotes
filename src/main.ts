@@ -1,9 +1,8 @@
 /** GemmaNotes — push-to-talk voice notes transcribed on-device with Gemma 4. */
 
-import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile } from "obsidian";
-import * as path from "path";
-import { DEFAULT_SETTINGS } from "./types";
-import type { GemmaNotesSettings, TranscriptionJob } from "./types";
+import { MarkdownView, Notice, Platform, Plugin, TFile } from "obsidian";
+import { DEFAULT_SETTINGS, MODEL_REPOS } from "./types";
+import type { GemmaNotesSettings, ModelVariant, TranscriptionJob } from "./types";
 import { GemmaNotesSettingTab } from "./settings";
 import { Recorder } from "./recorder";
 import { decodeToMono16k } from "./audio";
@@ -11,6 +10,7 @@ import { DualBackend, detectWebGPU } from "./transcriber";
 import type { ProgressUpdate, TranscriptionBackend } from "./transcriber";
 import { TranscriptionQueue } from "./queue";
 import type { QueueState } from "./queue";
+import { ModelDownloader } from "./downloader";
 import {
   clearToken,
   insertPlaceholder,
@@ -28,6 +28,7 @@ declare const __COMMIT_ID__: string;
 export default class GemmaNotesPlugin extends Plugin {
   settings!: GemmaNotesSettings;
   webGPUAvailable = false;
+  downloader!: ModelDownloader;
 
   private recorder = new Recorder();
   private backend!: TranscriptionBackend;
@@ -46,6 +47,22 @@ export default class GemmaNotesPlugin extends Plugin {
       `GemmaNotes plugin loaded. Version: ${this.manifest.version}, Commit: ${__COMMIT_ID__}`
     );
     await this.loadSettings();
+
+    if (Platform.isMobile) {
+      new Notice(
+        "GemmaNotes requires Obsidian desktop — mobile is not supported in this release.",
+        0,
+      );
+      console.warn("GemmaNotes: mobile platform detected; backend will not initialize.");
+      return;
+    }
+
+    this.downloader = new ModelDownloader(
+      this.app.vault,
+      this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
+    );
+    this.downloader.installFetchShim();
+
     this.webGPUAvailable = await detectWebGPU();
     this.resetBackend();
 
@@ -86,7 +103,8 @@ export default class GemmaNotesPlugin extends Plugin {
 
   onunload(): void {
     this.recorder.cancel();
-    this.backend.unload();
+    this.backend?.unload();
+    this.downloader?.uninstallFetchShim();
     if (this.timer != null) window.clearInterval(this.timer);
   }
 
@@ -99,50 +117,91 @@ export default class GemmaNotesPlugin extends Plugin {
       this.settings.transcriptionModel,
       this.settings.rewriteModel,
       this.webGPUAvailable,
-      this.getCacheDir(),
+      this.downloader.sentinel,
     );
 
-    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
-    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
-    if (txDownloaded && rxDownloaded) {
-      const notice = new Notice("GemmaNotes: Loading models...", 0);
-      this.backend
-        .load((u) => {
-          notice.setMessage(`GemmaNotes: ${u.label}`);
-        }, false)
-        .then(() => {
-          notice.hide();
-          new Notice("GemmaNotes: Models loaded and ready.");
-        })
-        .catch((e) => {
-          notice.hide();
-          console.error("GemmaNotes: failed to auto-load backend", e);
-          new Notice(`GemmaNotes: Failed to load models (${String(e)})`);
-        });
+    // Sync settings.downloadedModels with what's actually on disk, then
+    // auto-load if both selected models are present.
+    void this.syncAndAutoload();
+  }
+
+  private async syncAndAutoload(): Promise<void> {
+    const tx = this.settings.transcriptionModel;
+    const rx = this.settings.rewriteModel;
+    const txOnDisk = await this.downloader.isDownloaded(MODEL_REPOS[tx]);
+    const rxOnDisk = await this.downloader.isDownloaded(MODEL_REPOS[rx]);
+    let changed = false;
+    if (this.settings.downloadedModels[tx] !== txOnDisk) {
+      this.settings.downloadedModels[tx] = txOnDisk;
+      changed = true;
+    }
+    if (this.settings.downloadedModels[rx] !== rxOnDisk) {
+      this.settings.downloadedModels[rx] = rxOnDisk;
+      changed = true;
+    }
+    if (changed) await this.saveSettings();
+
+    if (!txOnDisk || !rxOnDisk) return;
+
+    const notice = new Notice("GemmaNotes: Loading models...", 0);
+    try {
+      await this.backend.load((u) => {
+        notice.setMessage(`GemmaNotes: ${u.label}`);
+      }, false);
+      notice.hide();
+      new Notice("GemmaNotes: Models loaded and ready.");
+    } catch (e) {
+      notice.hide();
+      console.error("GemmaNotes: failed to auto-load backend", e);
+      new Notice(`GemmaNotes: Failed to load models (${String(e)})`);
     }
   }
 
-  getCacheDir(): string {
-    const adapter = this.app.vault.adapter;
-    if (adapter instanceof FileSystemAdapter) {
-      const vaultPath = adapter.getBasePath();
-      return path.join(
-        vaultPath,
-        this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
-        ".cache"
-      );
-    }
-    return path.join(
-      this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
-      ".cache"
-    );
+  /** dtype passed to transformers.js per variant; null = no dtype suffix. */
+  private dtypeFor(variant: ModelVariant): string | null {
+    return variant === "Whisper-Tiny" ? null : "q4f16";
   }
 
-  /** Download + load the selected model, reporting progress to the caller. */
+  /** Download + load the selected models, reporting progress to the caller. */
   async downloadModel(onProgress: (u: ProgressUpdate) => void): Promise<void> {
-    await this.backend.load(onProgress, true);
-    this.settings.downloadedModels[this.settings.transcriptionModel] = true;
-    this.settings.downloadedModels[this.settings.rewriteModel] = true;
+    const tx = this.settings.transcriptionModel;
+    const rx = this.settings.rewriteModel;
+    const variants: ModelVariant[] = tx === (rx as ModelVariant) ? [tx] : [tx, rx];
+
+    for (let i = 0; i < variants.length; i++) {
+      const v = variants[i];
+      const repo = MODEL_REPOS[v];
+      const offset = i / variants.length;
+      const span = 1 / variants.length;
+      await this.downloader.ensureDownloaded(repo, this.dtypeFor(v), (p) => {
+        onProgress({
+          fraction: p.fraction != null ? offset + p.fraction * span : null,
+          label: `[${v}] ${p.label}`,
+        });
+      });
+      this.settings.downloadedModels[v] = true;
+      await this.saveSettings();
+    }
+
+    onProgress({ fraction: 1, label: "Loading models into memory…" });
+    await this.backend.load(onProgress, false);
+  }
+
+  /** Wipe both the new and legacy cache layouts. */
+  async cleanAllModels(): Promise<void> {
+    this.backend?.unload();
+    await this.downloader.cleanAll();
+    for (const k of Object.keys(this.settings.downloadedModels)) {
+      this.settings.downloadedModels[k] = false;
+    }
+    await this.saveSettings();
+    this.resetBackend();
+  }
+
+  /** Delete a single variant's files. */
+  async deleteVariant(variant: ModelVariant): Promise<void> {
+    await this.downloader.deleteRepo(MODEL_REPOS[variant]);
+    this.settings.downloadedModels[variant] = false;
     await this.saveSettings();
   }
 

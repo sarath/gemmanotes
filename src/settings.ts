@@ -1,9 +1,9 @@
 /** Settings tab for GemmaNotes. */
 
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type GemmaNotesPlugin from "./main";
-import { MODEL_SIZES } from "./types";
-import type { TranscriptionModelVariant, RewriteModelVariant, Placement, Style } from "./types";
+import { MODEL_REPOS, MODEL_SIZES } from "./types";
+import type { ModelVariant, TranscriptionModelVariant, RewriteModelVariant, Placement, Style } from "./types";
 
 export class GemmaNotesSettingTab extends PluginSettingTab {
   constructor(app: App, private plugin: GemmaNotesPlugin) {
@@ -102,6 +102,37 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
               "be slow.",
       );
 
+    // --- Manage models ----------------------------------------------------
+    new Setting(containerEl).setName("Manage models").setHeading();
+
+    const manageList = containerEl.createDiv({ cls: "gemmanotes-manage-list" });
+    manageList.createEl("p", { text: "Loading on-disk model list…" });
+    void this.renderManageList(manageList);
+
+    new Setting(containerEl)
+      .setName("Clean all model files")
+      .setDesc(
+        "Delete every downloaded model file from the plugin directory " +
+          "(including legacy cache from earlier versions). Frees disk; you " +
+          "will need to re-download before next use.",
+      )
+      .addButton((b) =>
+        b
+          .setButtonText("Clean all")
+          .setWarning()
+          .onClick(async () => {
+            b.setDisabled(true);
+            try {
+              await this.plugin.cleanAllModels();
+              new Notice("GemmaNotes: all model files deleted.");
+              this.display();
+            } catch (e) {
+              new Notice(`GemmaNotes: clean failed (${String(e)}).`);
+              b.setDisabled(false);
+            }
+          }),
+      );
+
     // --- Transcription -----------------------------------------------------
     new Setting(containerEl).setName("Transcription").setHeading();
 
@@ -183,4 +214,55 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
         }),
       );
   }
+
+  private async renderManageList(container: HTMLElement): Promise<void> {
+    container.empty();
+    const entries = await this.plugin.downloader.list();
+    if (entries.length === 0) {
+      container.createEl("p", {
+        text: "No models downloaded yet.",
+        cls: "setting-item-description",
+      });
+      return;
+    }
+    // Map repo -> variant for the delete button.
+    const repoToVariant = new Map<string, ModelVariant>();
+    for (const [variant, repo] of Object.entries(MODEL_REPOS)) {
+      repoToVariant.set(repo, variant as ModelVariant);
+    }
+    let total = 0;
+    for (const e of entries) {
+      total += e.bytes;
+      const variant = repoToVariant.get(e.repo);
+      const setting = new Setting(container)
+        .setName(variant ?? e.repo)
+        .setDesc(`${e.repo} — ${formatBytes(e.bytes)}`);
+      if (variant) {
+        setting.addButton((b) =>
+          b.setButtonText("Delete").setWarning().onClick(async () => {
+            b.setDisabled(true);
+            try {
+              await this.plugin.deleteVariant(variant);
+              new Notice(`GemmaNotes: deleted ${variant}.`);
+              this.display();
+            } catch (err) {
+              new Notice(`GemmaNotes: delete failed (${String(err)}).`);
+              b.setDisabled(false);
+            }
+          }),
+        );
+      }
+    }
+    container.createEl("p", {
+      text: `Total on disk: ${formatBytes(total)}`,
+      cls: "setting-item-description",
+    });
+  }
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

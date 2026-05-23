@@ -53,3 +53,24 @@ into `<vault>/.obsidian/plugins/gemmanotes/`. Then enable the plugin and use
 - **Model cache** — stored in the browser Cache API. Persistent and offline-safe,
   but not yet relocated to the plugin data dir.
 - Desktop only — the model size and WebGPU requirement rule out mobile.
+
+## Platform support
+
+**Desktop only for now.** Mobile (Obsidian iOS/Android) is intentionally not
+supported in this release. Revisit when designing a mobile variant; the
+constraints to address are:
+
+- **Disk** — Gemma E2B is ~2 GB (q4f16); iOS sandboxes evict large app data
+  unpredictably. A mobile build would likely have to be Whisper-Tiny only
+  (~40 MB) or use a remote inference endpoint.
+- **Memory** — phones with 4 GB RAM will OOM loading Gemma. Even E2B is
+  borderline on 6 GB devices.
+- **Compute** — WebGPU on mobile renderers is limited or unavailable;
+  WASM fallback is ~10× slower and impractical for interactive use.
+- **UX** — push-to-talk + on-device transcription is a stronger fit for
+  desktop note-taking; mobile users may prefer a thinner client that posts
+  audio to a desktop instance or hosted endpoint.
+
+The plugin detects `Platform.isMobile` at load and refuses to initialize the
+backend with a clear notice, rather than failing partway through a multi-GB
+download.

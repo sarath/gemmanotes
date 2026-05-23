@@ -26,10 +26,17 @@ npm run dev        # watch mode
 Install into a vault for local testing:
 
 ```bash
-./install.sh /path/to/your/vault
+./install.sh /path/to/your/vault <feature-branch>
 ```
 
-This builds (if needed) and copies `main.js`, `manifest.json`, and `styles.css`
+Or with an environment variable:
+
+```bash
+FEATURE_BRANCH=<feature-branch> ./install.sh /path/to/your/vault
+```
+
+This fetches `origin`, checks out `origin/<feature-branch>` cleanly, runs
+`npm run build`, and copies `main.js`, `manifest.json`, and `styles.css`
 into `<vault>/.obsidian/plugins/gemmanotes/`. Then enable the plugin and use
 **Settings → GemmaNotes → Download** to fetch the model (~3.2 GB for E2B,
 ~5 GB for E4B).

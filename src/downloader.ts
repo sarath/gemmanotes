@@ -222,6 +222,13 @@ export class ModelDownloader {
     if (!onnxExt.test(path)) return true;
     const base = path.slice(path.lastIndexOf("/") + 1);
     const stem = base.replace(onnxExt, "");
+
+    // Always include the encoder_model, as transformers.js loads the unquantized
+    // encoder_model even when dtype is set to 'quantized'.
+    if (stem === "encoder_model") {
+      return true;
+    }
+
     // Known dtype tokens transformers.js may produce.
     const dtypeRe = /_(fp16|fp32|q4|q4f16|int8|uint8|q8|bnb4|quantized)$/;
     const m = stem.match(dtypeRe);
@@ -283,24 +290,21 @@ export class ModelDownloader {
     if (!res.body) throw new Error(`Empty response body for ${url}`);
 
     const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
     let received = 0;
+
+    const adapter = this.vault.adapter;
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push(value);
+
+      // Extract only the current chunk's bytes as an ArrayBuffer and append it
+      const chunkBuf = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+      await (adapter as any).appendBinary(tmpPath, chunkBuf);
+
       received += value.length;
       onBytes(received);
     }
-
-    const buf = new Uint8Array(received);
-    let offset = 0;
-    for (const c of chunks) {
-      buf.set(c, offset);
-      offset += c.length;
-    }
-
-    await this.vault.adapter.writeBinary(tmpPath, buf.buffer);
 
     // Ensure finalPath does not exist before rename, as adapter.rename fails on existing destination.
     if (await this.vault.adapter.exists(finalPath)) {

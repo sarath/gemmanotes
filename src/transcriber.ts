@@ -19,7 +19,7 @@ if (typeof process !== "undefined" && process?.release?.name === "node") {
   });
 }
 
-import type { ModelVariant, Style } from "./types";
+import type { ModelVariant, Style, TranscriptionModelVariant, RewriteModelVariant } from "./types";
 import { MODEL_REPOS } from "./types";
 
 export interface ProgressUpdate {
@@ -185,5 +185,131 @@ export class GemmaBackend implements TranscriptionBackend {
       { skip_special_tokens: true },
     );
     return decoded[0]?.trim() ?? "";
+  }
+}
+
+export class WhisperBackend implements TranscriptionBackend {
+  private pipeline: any = null;
+  private device: "webgpu" | "wasm" = "wasm";
+
+  constructor(useWebGPU: boolean) {
+    this.device = useWebGPU ? "webgpu" : "wasm";
+  }
+
+  get ready(): boolean {
+    return this.pipeline != null;
+  }
+
+  async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
+    if (this.ready) return;
+
+    const tfjs = await import("@huggingface/transformers");
+    const { pipeline, env } = tfjs as any;
+
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+
+    const repo = MODEL_REPOS["Whisper-Tiny"];
+    const seen = new Map<string, number>();
+    const progress_callback = (p: any) => {
+      if (typeof p?.progress === "number" && p.status !== "done") {
+        seen.set(p.file ?? p.status, p.progress);
+        const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
+        onProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
+      } else if (p?.status === "ready" || p?.status === "done") {
+        onProgress({ fraction: 1, label: "Loading model into memory…" });
+      }
+    };
+
+    this.pipeline = await pipeline("automatic-speech-recognition", repo, {
+      device: this.device,
+      progress_callback,
+    });
+    onProgress({ fraction: 1, label: "Model ready." });
+  }
+
+  unload(): void {
+    this.pipeline?.model?.dispose?.();
+    this.pipeline = null;
+  }
+
+  async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
+    if (!this.ready) throw new Error("Whisper model is not loaded.");
+
+    const result = await this.pipeline(audio, {
+      task: "transcribe",
+    });
+
+    return result?.text?.trim() ?? "";
+  }
+
+  async rewrite(text: string): Promise<string> {
+    throw new Error("Rewriting is not supported by the Whisper model. Please switch to a Gemma model in settings.");
+  }
+}
+
+export class DualBackend implements TranscriptionBackend {
+  private txBackend: TranscriptionBackend;
+  private rxBackend: TranscriptionBackend;
+
+  constructor(
+    txVariant: TranscriptionModelVariant,
+    rxVariant: RewriteModelVariant,
+    useWebGPU: boolean
+  ) {
+    if (txVariant === "Whisper-Tiny") {
+      this.txBackend = new WhisperBackend(useWebGPU);
+    } else {
+      this.txBackend = new GemmaBackend(txVariant, useWebGPU);
+    }
+
+    if ((txVariant as string) === rxVariant) {
+      this.rxBackend = this.txBackend;
+    } else {
+      this.rxBackend = new GemmaBackend(rxVariant, useWebGPU);
+    }
+  }
+
+  get ready(): boolean {
+    return this.txBackend.ready && this.rxBackend.ready;
+  }
+
+  async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
+    if (this.txBackend === this.rxBackend) {
+      await this.txBackend.load(onProgress);
+    } else {
+      onProgress({ fraction: 0.0, label: "Loading transcription model..." });
+      await this.txBackend.load((u) => {
+        onProgress({
+          fraction: u.fraction ? u.fraction * 0.5 : 0.25,
+          label: `[Transcription] ${u.label}`,
+        });
+      });
+
+      onProgress({ fraction: 0.5, label: "Loading rewriting model..." });
+      await this.rxBackend.load((u) => {
+        onProgress({
+          fraction: u.fraction ? 0.5 + u.fraction * 0.5 : 0.75,
+          label: `[Rewriting] ${u.label}`,
+        });
+      });
+
+      onProgress({ fraction: 1.0, label: "All models ready." });
+    }
+  }
+
+  async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
+    return this.txBackend.transcribeChunk(audio, opts);
+  }
+
+  async rewrite(text: string): Promise<string> {
+    return this.rxBackend.rewrite(text);
+  }
+
+  unload(): void {
+    this.txBackend.unload();
+    if (this.txBackend !== this.rxBackend) {
+      this.rxBackend.unload();
+    }
   }
 }

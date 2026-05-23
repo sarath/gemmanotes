@@ -6,7 +6,7 @@ import type { GemmaNotesSettings, TranscriptionJob } from "./types";
 import { GemmaNotesSettingTab } from "./settings";
 import { Recorder } from "./recorder";
 import { decodeToMono16k } from "./audio";
-import { GemmaBackend, detectWebGPU } from "./transcriber";
+import { DualBackend, detectWebGPU } from "./transcriber";
 import type { ProgressUpdate, TranscriptionBackend } from "./transcriber";
 import { TranscriptionQueue } from "./queue";
 import type { QueueState } from "./queue";
@@ -89,8 +89,9 @@ export default class GemmaNotesPlugin extends Plugin {
   /** Recreate the backend, e.g. after the model variant changed. */
   resetBackend(): void {
     this.backend?.unload();
-    this.backend = new GemmaBackend(
-      this.settings.modelVariant,
+    this.backend = new DualBackend(
+      this.settings.transcriptionModel,
+      this.settings.rewriteModel,
       this.webGPUAvailable,
     );
   }
@@ -98,7 +99,8 @@ export default class GemmaNotesPlugin extends Plugin {
   /** Download + load the selected model, reporting progress to the caller. */
   async downloadModel(onProgress: (u: ProgressUpdate) => void): Promise<void> {
     await this.backend.load(onProgress);
-    this.settings.modelDownloaded = true;
+    this.settings.downloadedModels[this.settings.transcriptionModel] = true;
+    this.settings.downloadedModels[this.settings.rewriteModel] = true;
     await this.saveSettings();
   }
 
@@ -113,8 +115,10 @@ export default class GemmaNotesPlugin extends Plugin {
   }
 
   private async startRecording(): Promise<void> {
-    if (!this.settings.modelDownloaded) {
-      new Notice("GemmaNotes: download the model in settings first.");
+    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
+    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
+    if (!txDownloaded || !rxDownloaded) {
+      new Notice("GemmaNotes: download the selected models in settings first.");
       return;
     }
     if (!this.activeMarkdownFile()) {
@@ -328,6 +332,31 @@ export default class GemmaNotesPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+    let migrated = false;
+    // Migration logic for old settings format
+    if (this.settings.modelVariant) {
+      if (!this.settings.transcriptionModel) {
+        this.settings.transcriptionModel = this.settings.modelVariant;
+      }
+      if (!this.settings.rewriteModel) {
+        this.settings.rewriteModel = this.settings.modelVariant as any;
+      }
+      delete this.settings.modelVariant;
+      migrated = true;
+    }
+    if (this.settings.modelDownloaded !== undefined) {
+      if (this.settings.modelDownloaded) {
+        const variant = this.settings.transcriptionModel || "E2B";
+        this.settings.downloadedModels[variant] = true;
+      }
+      delete this.settings.modelDownloaded;
+      migrated = true;
+    }
+
+    if (migrated) {
+      await this.saveSettings();
+    }
   }
 
   async saveSettings(): Promise<void> {

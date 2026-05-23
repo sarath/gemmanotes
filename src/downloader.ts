@@ -200,17 +200,19 @@ export class ModelDownloader {
   }
 
   /**
-   * Filter rule: keep all non-ONNX files (configs, tokenizers). For .onnx /
-   * .onnx_data files, keep only those matching the requested dtype suffix; or
-   * if no dtype is requested (e.g. Whisper pipeline), keep files with no dtype
-   * suffix.
+   * Filter rule: keep all non-ONNX files (configs, tokenizers). For ONNX
+   * weight files keep only those matching the requested dtype; or if no
+   * dtype is requested, keep files with no dtype suffix.
+   *
+   * ONNX weight files include `.onnx`, `.onnx_data`, and numbered external
+   * data parts like `.onnx_data_1`, `.onnx_data_2`, ... (protobuf 2 GB cap
+   * forces large weight files to spill across multiple parts).
    */
   private shouldInclude(path: string, dtype: string | null): boolean {
-    const isOnnx = path.endsWith(".onnx") || path.endsWith(".onnx_data");
-    if (!isOnnx) return true;
+    const onnxExt = /\.onnx(_data(_\d+)?)?$/;
+    if (!onnxExt.test(path)) return true;
     const base = path.slice(path.lastIndexOf("/") + 1);
-    // Strip extension(s) to inspect the stem.
-    const stem = base.replace(/\.onnx(_data)?$/, "");
+    const stem = base.replace(onnxExt, "");
     // Known dtype tokens transformers.js may produce.
     const dtypeRe = /_(fp16|fp32|q4|q4f16|int8|uint8|q8|bnb4|quantized)$/;
     const m = stem.match(dtypeRe);

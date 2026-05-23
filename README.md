@@ -60,9 +60,9 @@ into `<vault>/.obsidian/plugins/gemmanotes/`. Then enable the plugin and use
 supported in this release. Revisit when designing a mobile variant; the
 constraints to address are:
 
-- **Disk** — Gemma E2B is ~2 GB (q4f16); iOS sandboxes evict large app data
+- **Disk** — Gemma E2B is ~3.4 GB (q4f16); iOS sandboxes evict large app data
   unpredictably. A mobile build would likely have to be Whisper-Tiny only
-  (~40 MB) or use a remote inference endpoint.
+  (~110 MB) or use a remote inference endpoint.
 - **Memory** — phones with 4 GB RAM will OOM loading Gemma. Even E2B is
   borderline on 6 GB devices.
 - **Compute** — WebGPU on mobile renderers is limited or unavailable;

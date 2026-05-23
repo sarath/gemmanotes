@@ -159,7 +159,7 @@ export default class GemmaNotesPlugin extends Plugin {
 
   /** dtype passed to transformers.js per variant; null = no dtype suffix. */
   private dtypeFor(variant: ModelVariant): string | null {
-    return variant === "Whisper-Tiny" ? null : "q4f16";
+    return variant === "Whisper-Tiny" ? "quantized" : "q4f16";
   }
 
   /** Download + load the selected models, reporting progress to the caller. */

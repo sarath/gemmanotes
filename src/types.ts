@@ -58,7 +58,7 @@ export const MODEL_REPOS: Record<ModelVariant, string> = {
 export const MODEL_SIZES: Record<ModelVariant, string> = {
   E2B: "~3.2 GB",
   E4B: "~5 GB",
-  "Whisper-Tiny": "~40 MB",
+  "Whisper-Tiny": "~110 MB",
 };
 
 /** A unit of transcription work flowing through the FIFO queue. */

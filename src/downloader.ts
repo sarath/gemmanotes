@@ -71,7 +71,10 @@ export class ModelDownloader {
           const buf = await vault.adapter.readBinary(diskPath);
           return new Response(buf, {
             status: 200,
-            headers: { "Content-Type": "application/octet-stream" },
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Length": buf.byteLength.toString(),
+            },
           });
         } catch (e) {
           return new Response(null, { status: 404, statusText: `Not found: ${rel}` });
@@ -88,10 +91,32 @@ export class ModelDownloader {
     }
   }
 
-  /** True if a complete manifest exists for this repo. */
+  /** True if a complete manifest exists for this repo and all files are intact. */
   async isDownloaded(repo: string): Promise<boolean> {
     const manifestPath = this.manifestPath(repo);
-    return await this.vault.adapter.exists(manifestPath);
+    if (!(await this.vault.adapter.exists(manifestPath))) {
+      return false;
+    }
+    try {
+      const content = await this.vault.adapter.read(manifestPath);
+      const manifest = JSON.parse(content) as CompletionManifest;
+      if (manifest.version === 1 && Array.isArray(manifest.files)) {
+        for (const file of manifest.files) {
+          const path = `${this.pluginDir}/models/${repo}/${file.path}`;
+          if (!(await this.vault.adapter.exists(path))) {
+            return false;
+          }
+          const stat = await this.vault.adapter.stat(path);
+          if (!stat || stat.size !== file.size) {
+            return false;
+          }
+        }
+        return true;
+      }
+    } catch (e) {
+      console.warn("GemmaNotes: failed to parse or verify manifest, will re-download.", e);
+    }
+    return false;
   }
 
   /**
@@ -284,6 +309,9 @@ export class ModelDownloader {
     if (await this.vault.adapter.exists(tmpPath)) {
       await this.vault.adapter.remove(tmpPath);
     }
+
+    // Create an empty file to ensure it exists on disk before appending to it.
+    await this.vault.adapter.writeBinary(tmpPath, new ArrayBuffer(0));
 
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);

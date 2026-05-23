@@ -6,6 +6,19 @@
  * in-process implementation using transformers.js + Gemma 4 ONNX.
  */
 
+// Electron renderer presents a global `process` object with process.release.name === 'node'.
+// This fools transformers.js into thinking it's in a pure Node.js environment,
+// which breaks model loading (it attempts to return paths and load via Node fs).
+// We override process.release.name to 'electron' so that transformers.js correctly
+// uses the web/browser configuration (loading via Uint8Array buffers and using WASM/WebGPU).
+if (typeof process !== "undefined" && process?.release?.name === "node") {
+  Object.defineProperty(process, "release", {
+    value: { ...process.release, name: "electron" },
+    configurable: true,
+    writable: true,
+  });
+}
+
 import type { ModelVariant, Style } from "./types";
 import { MODEL_REPOS } from "./types";
 

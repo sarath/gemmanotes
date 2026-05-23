@@ -6,6 +6,19 @@
  * in-process implementation using transformers.js + Gemma 4 ONNX.
  */
 
+// Electron renderer presents a global `process` object with process.release.name === 'node'.
+// This fools transformers.js into thinking it's in a pure Node.js environment,
+// which breaks model loading (it attempts to return paths and load via Node fs).
+// We override process.release.name to 'electron' so that transformers.js correctly
+// uses the web/browser configuration (loading via Uint8Array buffers and using WASM/WebGPU).
+if (typeof process !== "undefined" && process?.release?.name === "node") {
+  Object.defineProperty(process, "release", {
+    value: { ...process.release, name: "electron" },
+    configurable: true,
+    writable: true,
+  });
+}
+
 import type { ModelVariant, Style } from "./types";
 import { MODEL_REPOS } from "./types";
 
@@ -72,6 +85,11 @@ export class GemmaBackend implements TranscriptionBackend {
     // subsequent loads are fully offline.
     env.allowLocalModels = false;
     env.useBrowserCache = true;
+
+    // --- diagnostic: confirm ORT-Web wired up by the alias ---
+    console.log("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
+    console.log("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
+    console.log("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
 
     const repo = MODEL_REPOS[this.variant];
     const seen = new Map<string, number>();

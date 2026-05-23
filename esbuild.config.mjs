@@ -1,13 +1,26 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
+import { execSync } from "child_process";
 
 const production = process.argv[2] === "production";
+
+let commitId = process.env.COMMIT_ID || "";
+if (!commitId) {
+  try {
+    commitId = execSync("git rev-parse --short HEAD").toString().trim();
+  } catch (e) {
+    commitId = "unknown";
+  }
+}
 
 const banner = `/* GemmaNotes — generated bundle. Do not edit directly. */`;
 
 const ctx = await esbuild.context({
   banner: { js: banner },
+  define: {
+    __COMMIT_ID__: JSON.stringify(commitId),
+  },
   entryPoints: ["src/main.ts"],
   bundle: true,
   external: [

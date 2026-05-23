@@ -23,6 +23,8 @@ interface RewriteCandidate {
   text: string;
 }
 
+declare const __COMMIT_ID__: string;
+
 export default class GemmaNotesPlugin extends Plugin {
   settings!: GemmaNotesSettings;
   webGPUAvailable = false;
@@ -40,6 +42,9 @@ export default class GemmaNotesPlugin extends Plugin {
   private gpuWarned = false;
 
   async onload(): Promise<void> {
+    console.log(
+      `GemmaNotes plugin loaded. Version: ${this.manifest.version}, Commit: ${__COMMIT_ID__}`
+    );
     await this.loadSettings();
     this.webGPUAvailable = await detectWebGPU();
     this.resetBackend();

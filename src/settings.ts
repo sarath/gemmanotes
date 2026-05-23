@@ -107,9 +107,8 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
 
     const manageList = containerEl.createDiv({ cls: "gemmanotes-manage-list" });
     manageList.createEl("p", { text: "Loading on-disk model list…" });
-    void this.renderManageList(manageList);
 
-    new Setting(containerEl)
+    const cleanAllSetting = new Setting(containerEl)
       .setName("Clean all model files")
       .setDesc(
         "Delete every downloaded model file from the plugin directory " +
@@ -132,6 +131,8 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             }
           }),
       );
+
+    void this.renderManageList(manageList, cleanAllSetting);
 
     // --- Transcription -----------------------------------------------------
     new Setting(containerEl).setName("Transcription").setHeading();
@@ -215,14 +216,22 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
       );
   }
 
-  private async renderManageList(container: HTMLElement): Promise<void> {
+  private async renderManageList(
+    container: HTMLElement,
+    cleanAllSetting: Setting,
+  ): Promise<void> {
     container.empty();
+    const baseCleanDesc =
+      "Delete every downloaded model file from the plugin directory " +
+      "(including legacy cache from earlier versions). Frees disk; you " +
+      "will need to re-download before next use.";
     const entries = await this.plugin.downloader.list();
     if (entries.length === 0) {
       container.createEl("p", {
         text: "No models downloaded yet.",
         cls: "setting-item-description",
       });
+      cleanAllSetting.setDesc(baseCleanDesc);
       return;
     }
     // Map repo -> variant for the delete button.
@@ -253,10 +262,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
         );
       }
     }
-    container.createEl("p", {
-      text: `Total on disk: ${formatBytes(total)}`,
-      cls: "setting-item-description",
-    });
+    cleanAllSetting.setDesc(`${baseCleanDesc} Total on disk: ${formatBytes(total)}.`);
   }
 }
 

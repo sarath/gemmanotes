@@ -46,6 +46,7 @@ const RETRY_DELAYS_MS = [1000, 4000, 16000];
 
 export class ModelDownloader {
   private originalFetch: typeof fetch | null = null;
+  private activeDownloads = new Set<string>();
 
   constructor(private vault: Vault, private pluginDir: string) {}
 
@@ -102,52 +103,60 @@ export class ModelDownloader {
     dtype: string | null,
     onProgress: (p: DownloadProgress) => void,
   ): Promise<void> {
-    if (await this.isDownloaded(repo)) {
-      onProgress({ fraction: 1, label: `${repo} already downloaded.` });
-      return;
+    if (this.activeDownloads.has(repo)) {
+      throw new Error(`Download for ${repo} is already in progress.`);
     }
-
-    onProgress({ fraction: null, label: `Fetching file list for ${repo}…` });
-    const tree = await this.fetchTree(repo);
-    const wanted = tree.filter((e) => e.type === "file" && this.shouldInclude(e.path, dtype));
-    if (wanted.length === 0) {
-      throw new Error(`No matching files found in ${repo} for dtype=${dtype}.`);
-    }
-
-    const totalBytes = wanted.reduce((a, b) => a + (b.size || 0), 0);
-    let doneBytes = 0;
-
-    await this.ensureDir(`${this.pluginDir}/models/${repo}`);
-
-    for (const file of wanted) {
-      const finalPath = `${this.pluginDir}/models/${repo}/${file.path}`;
-      if (await this.vault.adapter.exists(finalPath)) {
-        const stat = await this.vault.adapter.stat(finalPath);
-        if (stat && stat.size === file.size) {
-          doneBytes += file.size;
-          continue;
-        }
-        await this.vault.adapter.remove(finalPath);
+    this.activeDownloads.add(repo);
+    try {
+      if (await this.isDownloaded(repo)) {
+        onProgress({ fraction: 1, label: `${repo} already downloaded.` });
+        return;
       }
 
-      await this.ensureDir(this.dirname(finalPath));
-      const fileStartBytes = doneBytes;
-      await this.downloadFileWithRetry(repo, file, (bytesInFile) => {
-        const frac = totalBytes > 0 ? (fileStartBytes + bytesInFile) / totalBytes : null;
-        onProgress({ fraction: frac, label: `Downloading ${file.path}` });
-      });
-      doneBytes += file.size;
-    }
+      onProgress({ fraction: null, label: `Fetching file list for ${repo}…` });
+      const tree = await this.fetchTree(repo);
+      const wanted = tree.filter((e) => e.type === "file" && this.shouldInclude(e.path, dtype));
+      if (wanted.length === 0) {
+        throw new Error(`No matching files found in ${repo} for dtype=${dtype}.`);
+      }
 
-    const manifest: CompletionManifest = {
-      version: 1,
-      repo,
-      dtype,
-      files: wanted.map((f) => ({ path: f.path, size: f.size })),
-      completedAt: new Date().toISOString(),
-    };
-    await this.vault.adapter.write(this.manifestPath(repo), JSON.stringify(manifest, null, 2));
-    onProgress({ fraction: 1, label: `${repo} downloaded.` });
+      const totalBytes = wanted.reduce((a, b) => a + (b.size || 0), 0);
+      let doneBytes = 0;
+
+      await this.ensureDir(`${this.pluginDir}/models/${repo}`);
+
+      for (const file of wanted) {
+        const finalPath = `${this.pluginDir}/models/${repo}/${file.path}`;
+        if (await this.vault.adapter.exists(finalPath)) {
+          const stat = await this.vault.adapter.stat(finalPath);
+          if (stat && stat.size === file.size) {
+            doneBytes += file.size;
+            continue;
+          }
+          await this.vault.adapter.remove(finalPath);
+        }
+
+        await this.ensureDir(this.dirname(finalPath));
+        const fileStartBytes = doneBytes;
+        await this.downloadFileWithRetry(repo, file, (bytesInFile) => {
+          const frac = totalBytes > 0 ? (fileStartBytes + bytesInFile) / totalBytes : null;
+          onProgress({ fraction: frac, label: `Downloading ${file.path}` });
+        });
+        doneBytes += file.size;
+      }
+
+      const manifest: CompletionManifest = {
+        version: 1,
+        repo,
+        dtype,
+        files: wanted.map((f) => ({ path: f.path, size: f.size })),
+        completedAt: new Date().toISOString(),
+      };
+      await this.vault.adapter.write(this.manifestPath(repo), JSON.stringify(manifest, null, 2));
+      onProgress({ fraction: 1, label: `${repo} downloaded.` });
+    } finally {
+      this.activeDownloads.delete(repo);
+    }
   }
 
   /** Delete all files for one repo. */
@@ -248,8 +257,20 @@ export class ModelDownloader {
     file: TreeEntry,
     onBytes: (n: number) => void,
   ): Promise<void> {
-    const url = `${HF_RESOLVE}/${repo}/resolve/main/${file.path}`;
     const finalPath = `${this.pluginDir}/models/${repo}/${file.path}`;
+
+    // If finalPath already exists and has the correct size, skip downloading entirely.
+    // This can happen if a concurrent download finished, or if a retry occurs
+    // after a successful download of this file.
+    if (await this.vault.adapter.exists(finalPath)) {
+      const stat = await this.vault.adapter.stat(finalPath);
+      if (stat && stat.size === file.size) {
+        onBytes(file.size);
+        return;
+      }
+    }
+
+    const url = `${HF_RESOLVE}/${repo}/resolve/main/${file.path}`;
     const tmpPath = `${finalPath}.tmp`;
 
     // Clean stale tmp from a prior aborted run.
@@ -280,6 +301,11 @@ export class ModelDownloader {
     }
 
     await this.vault.adapter.writeBinary(tmpPath, buf.buffer);
+
+    // Ensure finalPath does not exist before rename, as adapter.rename fails on existing destination.
+    if (await this.vault.adapter.exists(finalPath)) {
+      await this.vault.adapter.remove(finalPath);
+    }
     // adapter.rename is the atomic step that publishes the file.
     await this.vault.adapter.rename(tmpPath, finalPath);
   }

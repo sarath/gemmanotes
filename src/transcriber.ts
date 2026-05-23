@@ -83,9 +83,9 @@ export class GemmaBackend implements TranscriptionBackend {
     const tfjs = await import("@huggingface/transformers");
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;
 
-    // Only allow remote model files; cache them in the local plugin directory so
+    // Only allow local or remote model files; cache them in the local plugin directory so
     // subsequent loads are fully offline and persistent.
-    env.allowLocalModels = false;
+    env.allowLocalModels = true;
     env.useBrowserCache = false;
     env.useFSCache = true;
     env.cacheDir = this.cacheDir;
@@ -213,7 +213,7 @@ export class WhisperBackend implements TranscriptionBackend {
     const tfjs = await import("@huggingface/transformers");
     const { pipeline, env } = tfjs as any;
 
-    env.allowLocalModels = false;
+    env.allowLocalModels = true;
     env.useBrowserCache = false;
     env.useFSCache = true;
     env.cacheDir = this.cacheDir;

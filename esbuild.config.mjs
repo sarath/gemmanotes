@@ -32,6 +32,11 @@ const ctx = await esbuild.context({
   // gets a working browser runtime.
   alias: {
     "onnxruntime-node": "onnxruntime-web/webgpu",
+    "node:fs": "fs",
+    "node:path": "path",
+    "node:url": "url",
+    "node:stream": "stream",
+    "node:os": "os",
   },
   format: "cjs",
   target: "es2020",

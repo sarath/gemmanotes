@@ -16,7 +16,7 @@ import {
   replaceToken,
   startTranscribing,
 } from "./insertion";
-import { getPlaceholderPlugin } from "./editor-extension";
+import { getPlaceholderPlugin, refreshEffect } from "./editor-extension";
 
 /** A completed insert that can still be swapped for a rewrite. */
 interface RewriteCandidate {
@@ -42,6 +42,7 @@ export default class GemmaNotesPlugin extends Plugin {
   private activeJobId: string | null = null;
   private activeJobFilePath: string | null = null;
   private loadPromise: Promise<void> | null = null;
+  private rewriting = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -80,6 +81,7 @@ export default class GemmaNotesPlugin extends Plugin {
         getRewriteCandidate: () => this.rewriteCandidate,
         applyRewrite: () => this.applyRewrite(),
         stopRecording: () => this.stopRecording(),
+        isRewriting: () => this.rewriting,
       }),
     );
 
@@ -329,7 +331,9 @@ export default class GemmaNotesPlugin extends Plugin {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (view && (view.editor as any).cm) {
       try {
-        (view.editor as any).cm.dispatch({});
+        (view.editor as any).cm.dispatch({
+          effects: refreshEffect.of(),
+        });
       } catch (e) {
         console.error("GemmaNotes: failed to refresh editor view", e);
       }
@@ -348,9 +352,12 @@ export default class GemmaNotesPlugin extends Plugin {
 
   private async applyRewrite(): Promise<void> {
     const c = this.rewriteCandidate;
-    if (!c) return;
+    if (!c || this.rewriting) return;
     const file = this.app.vault.getAbstractFileByPath(c.filePath);
     if (!(file instanceof TFile)) return this.clearHint();
+
+    this.rewriting = true;
+    this.refreshEditor();
 
     this.hintBar.setText("✨ Rewriting…");
     this.hintBar.onclick = null;
@@ -364,10 +371,22 @@ export default class GemmaNotesPlugin extends Plugin {
         }
         return content;
       });
-      if (!swapped) new Notice("GemmaNotes: original text was edited; rewrite skipped.");
+      if (!swapped) {
+        new Notice("GemmaNotes: original text was edited; rewrite skipped.");
+      } else {
+        if (this.settings.copyRewriteToClipboard) {
+          try {
+            await navigator.clipboard.writeText(rewritten);
+            new Notice("GemmaNotes: rewritten text copied to clipboard.");
+          } catch (clipErr) {
+            console.error("GemmaNotes: failed to copy rewrite to clipboard", clipErr);
+          }
+        }
+      }
     } catch (e) {
       new Notice(`GemmaNotes: rewrite failed (${String(e)}).`);
     } finally {
+      this.rewriting = false;
       this.clearHint();
     }
   }

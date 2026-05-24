@@ -30,6 +30,8 @@ export interface GemmaNotesSettings {
   language: string;
   /** Keep the raw recording as a vault attachment. */
   keepAudio: boolean;
+  /** Automatically copy rewritten text to clipboard. */
+  copyRewriteToClipboard: boolean;
 }
 
 export const DEFAULT_SETTINGS: GemmaNotesSettings = {
@@ -45,6 +47,7 @@ export const DEFAULT_SETTINGS: GemmaNotesSettings = {
   style: "cleaned",
   language: "auto",
   keepAudio: false,
+  copyRewriteToClipboard: false,
 };
 
 /** ONNX model repo ids on the Hugging Face hub. */

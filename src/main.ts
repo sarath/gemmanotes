@@ -14,7 +14,9 @@ import {
   clearToken,
   insertPlaceholder,
   replaceToken,
+  startTranscribing,
 } from "./insertion";
+import { placeholderPlugin } from "./editor-extension";
 
 /** A completed insert that can still be swapped for a rewrite. */
 interface RewriteCandidate {
@@ -37,6 +39,8 @@ export default class GemmaNotesPlugin extends Plugin {
 
   private rewriteCandidate: RewriteCandidate | null = null;
   private gpuWarned = false;
+  private activeJobId: string | null = null;
+  private activeJobFilePath: string | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -70,6 +74,8 @@ export default class GemmaNotesPlugin extends Plugin {
 
     this.addSettingTab(new GemmaNotesSettingTab(this.app, this));
 
+    this.registerEditorExtension(placeholderPlugin);
+
     // Retract the rewrite hint once the inserted text is edited away.
     this.registerEvent(
       this.app.workspace.on("editor-change", () => this.validateHint()),
@@ -82,6 +88,9 @@ export default class GemmaNotesPlugin extends Plugin {
     this.recorder.cancel();
     this.backend.unload();
     if (this.timer != null) window.clearInterval(this.timer);
+    if (this.activeJobId && this.activeJobFilePath) {
+      void clearToken(this.app, this.activeJobFilePath, this.activeJobId);
+    }
   }
 
   // --- Backend lifecycle ---------------------------------------------------
@@ -121,7 +130,8 @@ export default class GemmaNotesPlugin extends Plugin {
       new Notice("GemmaNotes: download the selected models in settings first.");
       return;
     }
-    if (!this.activeMarkdownFile()) {
+    const file = this.activeMarkdownFile();
+    if (!file) {
       new Notice("GemmaNotes: open a note to record into.");
       return;
     }
@@ -141,6 +151,22 @@ export default class GemmaNotesPlugin extends Plugin {
     }
     this.clearHint();
     this.ribbonEl.addClass("is-active");
+
+    const jobId = Math.random().toString(36).slice(2, 8);
+    this.activeJobId = jobId;
+    this.activeJobFilePath = file.path;
+
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    await insertPlaceholder(
+      this.app,
+      file,
+      jobId,
+      this.settings.placement,
+      this.settings.headingName,
+      view?.editor ?? null,
+      true, // isRecording = true
+    );
+
     this.startTimer();
   }
 
@@ -148,18 +174,29 @@ export default class GemmaNotesPlugin extends Plugin {
     this.ribbonEl.removeClass("is-active");
     this.stopTimer();
 
+    const jobId = this.activeJobId;
+    const filePath = this.activeJobFilePath;
+    this.activeJobId = null;
+    this.activeJobFilePath = null;
+
+    if (!jobId || !filePath) {
+      return;
+    }
+
     let blob: Blob;
     try {
       blob = await this.recorder.stop();
     } catch (e) {
       new Notice(`GemmaNotes: recording failed (${String(e)}).`);
+      await clearToken(this.app, filePath, jobId);
       return;
     }
 
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    const file = view?.file ?? this.activeMarkdownFile();
-    if (!file) {
+    const file = view?.file ?? this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) {
       new Notice("GemmaNotes: no note to insert into; recording discarded.");
+      await clearToken(this.app, filePath, jobId);
       return;
     }
 
@@ -172,23 +209,17 @@ export default class GemmaNotesPlugin extends Plugin {
       audio = await decodeToMono16k(blob);
     } catch (e) {
       new Notice(`GemmaNotes: could not decode audio (${String(e)}).`);
+      await clearToken(this.app, filePath, jobId);
       return;
     }
 
     const job: TranscriptionJob = {
-      id: Math.random().toString(36).slice(2, 8),
+      id: jobId,
       filePath: file.path,
       audio,
     };
 
-    await insertPlaceholder(
-      this.app,
-      file,
-      job.id,
-      this.settings.placement,
-      this.settings.headingName,
-      view?.editor ?? null,
-    );
+    await startTranscribing(this.app, filePath, jobId);
 
     this.queue.enqueue(job);
   }
@@ -265,7 +296,7 @@ export default class GemmaNotesPlugin extends Plugin {
     try {
       const rewritten = await this.backend.rewrite(c.text);
       let swapped = false;
-      await this.app.vault.process(file, (content) => {
+      await this.app.vault.process(file, (content: string) => {
         if (content.includes(c.text)) {
           swapped = true;
           return content.replace(c.text, rewritten);

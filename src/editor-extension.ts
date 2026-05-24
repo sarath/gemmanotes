@@ -7,9 +7,10 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
-export interface RewriteProvider {
+export interface EditorWidgetProvider {
   getRewriteCandidate(): { filePath: string; text: string } | null;
   applyRewrite(): Promise<void>;
+  stopRecording(): Promise<void>;
 }
 
 class PlaceholderWidget extends WidgetType {
@@ -17,6 +18,7 @@ class PlaceholderWidget extends WidgetType {
     readonly text: string,
     readonly jobId: string,
     readonly isRecording: boolean,
+    readonly provider: EditorWidgetProvider,
   ) {
     super();
   }
@@ -27,17 +29,27 @@ class PlaceholderWidget extends WidgetType {
       ? "gemmanotes-badge-emoji gemmanotes-recording-emoji"
       : "gemmanotes-badge-emoji gemmanotes-transcribing-emoji";
     span.textContent = this.isRecording ? "🎤" : "⏳";
-    span.title = this.isRecording
-      ? `Recording (gn-${this.jobId})`
-      : `Transcribing (gn-${this.jobId})`;
-    span.style.cursor = "default";
+
+    if (this.isRecording) {
+      span.title = `Click to stop recording (gn-${this.jobId})`;
+      span.style.cursor = "pointer";
+      span.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void this.provider.stopRecording();
+      });
+    } else {
+      span.title = `Transcribing (gn-${this.jobId})`;
+      span.style.cursor = "default";
+    }
+
     span.style.margin = "0 4px";
     span.style.display = "inline-block";
     return span;
   }
 
   ignoreEvent(): boolean {
-    return true;
+    return !this.isRecording;
   }
 }
 
@@ -69,7 +81,7 @@ class RewriteWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView, provider: RewriteProvider): DecorationSet {
+function buildDecorations(view: EditorView, provider: EditorWidgetProvider): DecorationSet {
   const builder: any[] = [];
 
   for (const { from, to } of view.visibleRanges) {
@@ -85,7 +97,7 @@ function buildDecorations(view: EditorView, provider: RewriteProvider): Decorati
       const isRecording = type.includes("Recording");
 
       const deco = Decoration.replace({
-        widget: new PlaceholderWidget(match[0], jobId, isRecording),
+        widget: new PlaceholderWidget(match[0], jobId, isRecording, provider),
         side: 0,
       });
       builder.push(deco.range(matchStart, matchEnd));
@@ -117,7 +129,7 @@ function buildDecorations(view: EditorView, provider: RewriteProvider): Decorati
 class PlaceholderPluginValue {
   decorations: DecorationSet;
 
-  constructor(view: EditorView, readonly provider: RewriteProvider) {
+  constructor(view: EditorView, readonly provider: EditorWidgetProvider) {
     this.decorations = buildDecorations(view, provider);
   }
 
@@ -128,7 +140,7 @@ class PlaceholderPluginValue {
   }
 }
 
-export function getPlaceholderPlugin(provider: RewriteProvider) {
+export function getPlaceholderPlugin(provider: EditorWidgetProvider) {
   return ViewPlugin.fromClass(
     class extends PlaceholderPluginValue {
       constructor(view: EditorView) {

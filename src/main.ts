@@ -78,6 +78,7 @@ export default class GemmaNotesPlugin extends Plugin {
       getPlaceholderPlugin({
         getRewriteCandidate: () => this.rewriteCandidate,
         applyRewrite: () => this.applyRewrite(),
+        stopRecording: () => this.stopRecording(),
       }),
     );
 

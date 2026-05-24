@@ -14,9 +14,10 @@ PLUGIN_ID="gemmanotes"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 VAULT="${1:-${OBSIDIAN_VAULT:-}}"
+BRANCH="${2:-${FEATURE_BRANCH:-main}}"
 if [[ -z "$VAULT" ]]; then
   echo "error: no vault path given." >&2
-  echo "usage: ./install.sh /path/to/your/vault" >&2
+  echo "usage: ./install.sh /path/to/your/vault [feature-branch]" >&2
   exit 1
 fi
 
@@ -25,11 +26,45 @@ if [[ ! -d "$VAULT/.obsidian" ]]; then
   exit 1
 fi
 
-# Build if the bundle is missing.
-if [[ ! -f "$ROOT/main.js" ]]; then
-  echo "main.js not found — building..."
-  ( cd "$ROOT" && npm run build )
+if ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "error: repository root not found at '$ROOT'." >&2
+  exit 1
 fi
+
+function restore_stash {
+  if [[ "${STASHED:-0}" == "1" ]]; then
+    echo "Restoring stashed changes..."
+    git -C "$ROOT" stash pop --index >/dev/null 2>&1 || true
+  fi
+}
+trap restore_stash EXIT
+
+echo "Fetching origin..."
+git -C "$ROOT" fetch origin --prune
+
+if ! git -C "$ROOT" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+  echo "error: origin/$BRANCH does not exist." >&2
+  exit 1
+fi
+
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "Stashing local changes..."
+  git -C "$ROOT" stash push -u -m "install.sh auto-stash" >/dev/null
+  STASHED=1
+fi
+
+if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  echo "Resetting local branch '$BRANCH' to origin/$BRANCH..."
+  git -C "$ROOT" checkout -q "$BRANCH"
+  git -C "$ROOT" reset --hard "origin/$BRANCH"
+else
+  echo "Checking out local branch '$BRANCH' from origin/$BRANCH..."
+  git -C "$ROOT" checkout -q -b "$BRANCH" "origin/$BRANCH"
+  git -C "$ROOT" branch --set-upstream-to="origin/$BRANCH" "$BRANCH" >/dev/null
+fi
+
+echo "Running build..."
+( cd "$ROOT" && npm run build )
 
 DEST="$VAULT/.obsidian/plugins/$PLUGIN_ID"
 mkdir -p "$DEST"

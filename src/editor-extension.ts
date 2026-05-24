@@ -7,6 +7,11 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
+export interface RewriteProvider {
+  getRewriteCandidate(): { filePath: string; text: string } | null;
+  applyRewrite(): Promise<void>;
+}
+
 class PlaceholderWidget extends WidgetType {
   constructor(
     readonly text: string,
@@ -19,21 +24,15 @@ class PlaceholderWidget extends WidgetType {
   toDOM(): HTMLElement {
     const span = document.createElement("span");
     span.className = this.isRecording
-      ? "gemmanotes-badge gemmanotes-badge-recording"
-      : "gemmanotes-badge gemmanotes-badge-transcribing";
-
-    const icon = document.createElement("span");
-    icon.className = "gemmanotes-badge-icon";
-    icon.textContent = this.isRecording ? "🎤" : "⏳";
-
-    const textSpan = document.createElement("span");
-    textSpan.className = "gemmanotes-badge-text";
-    textSpan.textContent = this.isRecording
+      ? "gemmanotes-badge-emoji gemmanotes-recording-emoji"
+      : "gemmanotes-badge-emoji gemmanotes-transcribing-emoji";
+    span.textContent = this.isRecording ? "🎤" : "⏳";
+    span.title = this.isRecording
       ? `Recording (gn-${this.jobId})`
       : `Transcribing (gn-${this.jobId})`;
-
-    span.appendChild(icon);
-    span.appendChild(textSpan);
+    span.style.cursor = "default";
+    span.style.margin = "0 4px";
+    span.style.display = "inline-block";
     return span;
   }
 
@@ -42,7 +41,35 @@ class PlaceholderWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+class RewriteWidget extends WidgetType {
+  constructor(readonly onClick: () => void) {
+    super();
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "gemmanotes-rewrite-magic-emoji";
+    span.textContent = "✨";
+    span.title = "Rewrite last note";
+    span.style.cursor = "pointer";
+    span.style.marginLeft = "4px";
+    span.style.display = "inline-block";
+
+    span.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onClick();
+    });
+
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+function buildDecorations(view: EditorView, provider: RewriteProvider): DecorationSet {
   const builder: any[] = [];
 
   for (const { from, to } of view.visibleRanges) {
@@ -65,26 +92,51 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
 
+  const candidate = provider.getRewriteCandidate();
+  if (candidate) {
+    const docText = view.state.doc.toString();
+    const idx = docText.indexOf(candidate.text);
+    if (idx !== -1) {
+      const endPos = idx + candidate.text.length;
+      const deco = Decoration.widget({
+        widget: new RewriteWidget(() => {
+          void provider.applyRewrite();
+        }),
+        side: 1,
+      });
+      builder.push(deco.range(endPos));
+    }
+  }
+
+  // Sort decorations by range start position to satisfy CodeMirror constraints
+  builder.sort((a, b) => a.from - b.from);
+
   return Decoration.set(builder);
 }
 
 class PlaceholderPluginValue {
   decorations: DecorationSet;
 
-  constructor(view: EditorView) {
-    this.decorations = buildDecorations(view);
+  constructor(view: EditorView, readonly provider: RewriteProvider) {
+    this.decorations = buildDecorations(view, provider);
   }
 
   update(update: ViewUpdate) {
     if (update.docChanged || update.viewportChanged) {
-      this.decorations = buildDecorations(update.view);
+      this.decorations = buildDecorations(update.view, this.provider);
     }
   }
 }
 
-export const placeholderPlugin = ViewPlugin.fromClass(
-  PlaceholderPluginValue,
-  {
-    decorations: (v: PlaceholderPluginValue) => v.decorations,
-  },
-);
+export function getPlaceholderPlugin(provider: RewriteProvider) {
+  return ViewPlugin.fromClass(
+    class extends PlaceholderPluginValue {
+      constructor(view: EditorView) {
+        super(view, provider);
+      }
+    },
+    {
+      decorations: (v) => v.decorations,
+    },
+  );
+}

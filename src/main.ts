@@ -16,7 +16,7 @@ import {
   replaceToken,
   startTranscribing,
 } from "./insertion";
-import { placeholderPlugin } from "./editor-extension";
+import { getPlaceholderPlugin } from "./editor-extension";
 
 /** A completed insert that can still be swapped for a rewrite. */
 interface RewriteCandidate {
@@ -74,7 +74,12 @@ export default class GemmaNotesPlugin extends Plugin {
 
     this.addSettingTab(new GemmaNotesSettingTab(this.app, this));
 
-    this.registerEditorExtension(placeholderPlugin);
+    this.registerEditorExtension(
+      getPlaceholderPlugin({
+        getRewriteCandidate: () => this.rewriteCandidate,
+        applyRewrite: () => this.applyRewrite(),
+      }),
+    );
 
     // Retract the rewrite hint once the inserted text is edited away.
     this.registerEvent(
@@ -267,12 +272,25 @@ export default class GemmaNotesPlugin extends Plugin {
     this.hintBar.setText("✨ Rewrite last note");
     this.hintBar.onclick = () => void this.applyRewrite();
     this.hintBar.show();
+    this.refreshEditor();
   }
 
   private clearHint(): void {
     this.rewriteCandidate = null;
     this.hintBar.onclick = null;
     this.hintBar.hide();
+    this.refreshEditor();
+  }
+
+  private refreshEditor(): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (view && (view.editor as any).cm) {
+      try {
+        (view.editor as any).cm.dispatch({});
+      } catch (e) {
+        console.error("GemmaNotes: failed to refresh editor view", e);
+      }
+    }
   }
 
   /** Retract the hint if the inserted text has been edited away. */

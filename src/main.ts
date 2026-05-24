@@ -41,6 +41,7 @@ export default class GemmaNotesPlugin extends Plugin {
   private gpuWarned = false;
   private activeJobId: string | null = null;
   private activeJobFilePath: string | null = null;
+  private loadPromise: Promise<void> | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -88,6 +89,10 @@ export default class GemmaNotesPlugin extends Plugin {
     );
 
     this.renderState({ transcribing: false, remaining: 0 });
+
+    this.app.workspace.onLayoutReady(() => {
+      void this.loadModelsIfDownloaded();
+    });
   }
 
   onunload(): void {
@@ -109,11 +114,13 @@ export default class GemmaNotesPlugin extends Plugin {
       this.settings.rewriteModel,
       this.webGPUAvailable,
     );
+    this.loadPromise = null;
   }
 
   /** Download + load the selected model, reporting progress to the caller. */
   async downloadModel(onProgress: (u: ProgressUpdate) => void): Promise<void> {
-    await this.backend.load(onProgress);
+    this.loadPromise = this.backend.load(onProgress);
+    await this.loadPromise;
     this.settings.downloadedModels[this.settings.transcriptionModel] = true;
     this.settings.downloadedModels[this.settings.rewriteModel] = true;
     await this.saveSettings();
@@ -225,9 +232,44 @@ export default class GemmaNotesPlugin extends Plugin {
       audio,
     };
 
+    if (this.loadPromise) {
+      try {
+        await this.loadPromise;
+      } catch (e) {
+        // Ignored here (already logged)
+      }
+    }
+
     await startTranscribing(this.app, filePath, jobId);
 
     this.queue.enqueue(job);
+  }
+
+  private async loadModelsIfDownloaded(): Promise<void> {
+    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
+    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
+    if (txDownloaded && rxDownloaded) {
+      this.stateBar.addClass("is-transcribing");
+      this.stateBar.setText("⏳ GemmaNotes initializing… (0%)");
+
+      this.loadPromise = this.backend.load((u) => {
+        const pct = typeof u.fraction === "number" ? Math.round(u.fraction * 100) : 0;
+        this.stateBar.setText(`⏳ GemmaNotes initializing… (${pct}%)`);
+      });
+
+      try {
+        await this.loadPromise;
+        console.log("GemmaNotes: model load successful");
+      } catch (e) {
+        console.error("GemmaNotes: background model load failed", e);
+        this.loadPromise = null;
+      } finally {
+        this.stateBar.removeClass("is-transcribing");
+        if (!this.recorder.isRecording) {
+          this.stateBar.setText("");
+        }
+      }
+    }
   }
 
   // --- Queue callbacks -----------------------------------------------------

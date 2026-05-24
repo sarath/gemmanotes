@@ -25,7 +25,7 @@ http.get('http://localhost:9222/json', (res) => {
           send("Console.enable");
           send("Runtime.enable");
 
-          // Let's run status check first, then if not loaded, load it.
+          // Check if already loaded or currently loading from startup.
           const checkAndLoadExpr = `
             (async function() {
               const plugin = app.plugins.plugins.gemmanotes;
@@ -38,16 +38,17 @@ http.get('http://localhost:9222/json', (res) => {
                 return "Already loaded!";
               }
               
-              console.log("Triggering backend.load() via test script...");
-              try {
-                await backend.load((u) => {
-                  console.log("LOAD_PROGRESS: " + u.fraction + " - " + u.label);
-                }, true);
-                return "Load successful!";
-              } catch (e) {
-                console.error("LOAD_ERROR: " + e.stack);
-                return "Load failed: " + e.message;
+              if (plugin.loadPromise) {
+                console.log("Awaiting background startup loading...");
+                try {
+                  await plugin.loadPromise;
+                  return "Load successful!";
+                } catch (e) {
+                  return "Load failed: " + e.message;
+                }
               }
+              
+              return "Not loaded and not loading!";
             })()
           `;
           

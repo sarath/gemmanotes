@@ -182,5 +182,15 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("Copy rewrites to clipboard")
+      .setDesc("Automatically copy rewritten text to the clipboard when completed.")
+      .addToggle((t) =>
+        t.setValue(s.copyRewriteToClipboard).onChange(async (v) => {
+          s.copyRewriteToClipboard = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 }

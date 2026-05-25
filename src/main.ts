@@ -118,25 +118,9 @@ export default class GemmaNotesPlugin extends Plugin {
       this.webGPUAvailable,
       this.getCacheDir(),
     );
+    this.loadPromise = null;
 
-    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
-    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
-    if (txDownloaded && rxDownloaded) {
-      const notice = new Notice("GemmaNotes: Loading models...", 0);
-      this.backend
-        .load((u) => {
-          notice.setMessage(`GemmaNotes: ${u.label}`);
-        }, false)
-        .then(() => {
-          notice.hide();
-          new Notice("GemmaNotes: Models loaded and ready.");
-        })
-        .catch((e) => {
-          notice.hide();
-          console.error("GemmaNotes: failed to auto-load backend", e);
-          new Notice(`GemmaNotes: Failed to load models (${String(e)})`);
-        });
-    }
+    void this.loadModelsIfDownloaded();
   }
 
   getCacheDir(): string {
@@ -289,6 +273,8 @@ export default class GemmaNotesPlugin extends Plugin {
     const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
     const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
     if (txDownloaded && rxDownloaded) {
+      if (this.loadPromise) return;
+
       this.stateBar.addClass("is-transcribing");
       this.stateBar.setText("⏳ GemmaNotes initializing… (0%)");
 
@@ -300,12 +286,15 @@ export default class GemmaNotesPlugin extends Plugin {
       try {
         await this.loadPromise;
         console.log("GemmaNotes: model load successful");
+        new Notice("GemmaNotes: Models loaded and ready.");
       } catch (e) {
         console.error("GemmaNotes: background model load failed", e);
         this.loadPromise = null;
+        new Notice(`GemmaNotes: Failed to load models (${String(e)})`);
+        this.stateBar.setText("⚠️ GemmaNotes failed to load");
       } finally {
         this.stateBar.removeClass("is-transcribing");
-        if (!this.recorder.isRecording) {
+        if (this.loadPromise && !this.recorder.isRecording) {
           this.stateBar.setText("");
         }
       }

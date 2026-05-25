@@ -83,12 +83,10 @@ export class GemmaBackend implements TranscriptionBackend {
     const tfjs = await import("@huggingface/transformers");
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;
 
-    // Only allow remote model files; cache them in the local plugin directory so
-    // subsequent loads are fully offline and persistent.
-    env.allowLocalModels = false;
-    env.useBrowserCache = false;
-    env.useFSCache = true;
-    env.cacheDir = this.cacheDir;
+    // Cache model files in the browser Cache API so subsequent loads are offline.
+    env.allowLocalModels = true;
+    env.useBrowserCache = true;
+    env.useFSCache = false;
     env.allowRemoteModels = allowRemote;
 
     // --- diagnostic: confirm ORT-Web wired up by the alias ---
@@ -213,10 +211,10 @@ export class WhisperBackend implements TranscriptionBackend {
     const tfjs = await import("@huggingface/transformers");
     const { pipeline, env } = tfjs as any;
 
-    env.allowLocalModels = false;
-    env.useBrowserCache = false;
-    env.useFSCache = true;
-    env.cacheDir = this.cacheDir;
+    // Cache model files in the browser Cache API so subsequent loads are offline.
+    env.allowLocalModels = true;
+    env.useBrowserCache = true;
+    env.useFSCache = false;
     env.allowRemoteModels = allowRemote;
 
     const repo = MODEL_REPOS["Whisper-Tiny"];
@@ -246,9 +244,7 @@ export class WhisperBackend implements TranscriptionBackend {
   async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
     if (!this.ready) throw new Error("Whisper model is not loaded.");
 
-    const result = await this.pipeline(audio, {
-      task: "transcribe",
-    });
+    const result = await this.pipeline(audio);
 
     return result?.text?.trim() ?? "";
   }

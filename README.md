@@ -4,6 +4,16 @@ Push-to-talk voice notes for Obsidian, transcribed **entirely on-device** with
 Google's Gemma 4 (E2B / E4B) running in-process via transformers.js. No server,
 no API key — fully offline after a one-time model download.
 
+Built with Love and Antigravity CLI, Gemini 3.5 Flash
+
+
+      ▄▀▀▄        Antigravity CLI 1.0.2
+     ▀▀▀▀▀▀       xxxxxxxxxxxxxxxxxxxxx
+    ▀▀▀▀▀▀▀▀      Gemini 3.5 Flash (High)
+   ▄▀▀    ▀▀▄     ~/gemmanotes
+  ▄▀▀      ▀▀▄
+
+
 ## How it works
 
 1. Toggle recording with the ribbon mic button or the **Toggle voice recording**
@@ -15,7 +25,7 @@ no API key — fully offline after a one-time model download.
 4. The placeholder is swapped for the transcribed text.
 5. A status-bar hint offers a one-click **rewrite** into tidy prose.
 
-## Setup
+## Local Setup
 
 ```bash
 npm install

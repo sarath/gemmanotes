@@ -6,12 +6,13 @@ no API key — fully offline after a one-time model download.
 
 Built with Love and Antigravity CLI, Gemini 3.5 Flash
 
-
+```
       ▄▀▀▄        Antigravity CLI 1.0.2
      ▀▀▀▀▀▀       xxxxxxxxxxxxxxxxxxxxx
     ▀▀▀▀▀▀▀▀      Gemini 3.5 Flash (High)
    ▄▀▀    ▀▀▄     ~/gemmanotes
   ▄▀▀      ▀▀▄
+```
 
 
 ## How it works
@@ -27,6 +28,13 @@ Built with Love and Antigravity CLI, Gemini 3.5 Flash
 
 ## Local Setup
 
+Git clone:
+
+```bash
+gh clone https://github.com/sarath/gemmanotes
+```
+
+Development:
 ```bash
 npm install
 npm run build      # production bundle -> main.js
@@ -35,14 +43,10 @@ npm run dev        # watch mode
 
 Install into a vault for local testing:
 
+Mac
 ```bash
+git clone https://github.com/sarath/gemmanotes
 ./install.sh /path/to/your/vault <feature-branch>
-```
-
-Or with an environment variable:
-
-```bash
-FEATURE_BRANCH=<feature-branch> ./install.sh /path/to/your/vault
 ```
 
 This fetches `origin`, checks out `origin/<feature-branch>` cleanly, runs

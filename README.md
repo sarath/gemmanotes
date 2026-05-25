@@ -25,6 +25,7 @@ Built with Love and Antigravity CLI, Gemini 3.5 Flash
    recording while one is still processing.
 4. The placeholder is swapped for the transcribed text.
 5. A status-bar hint offers a one-click **rewrite** into tidy prose.
+6. Network use: Only needed for downloading and caching models from huggingface.
 
 ## Local Setup
 

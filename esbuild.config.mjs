@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
-import process from "process";
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
+import process from "node:process";
 
 const production = process.argv[2] === "production";
 
@@ -24,7 +24,7 @@ const ctx = await esbuild.context({
     "@lezer/common",
     "@lezer/highlight",
     "@lezer/lr",
-    ...builtins,
+    ...builtinModules,
   ],
   // Obsidian runs in Electron renderer, where `process` exists — transformers.js
   // takes its Node branch and tries to load `onnxruntime-node`'s native binding

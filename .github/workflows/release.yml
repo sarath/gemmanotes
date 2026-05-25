@@ -1,0 +1,128 @@
+name: Release and Version Bump
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+    branches:
+      - main
+
+jobs:
+  pr-preview-release:
+    name: PR Preview Release
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Calculate and set preview version
+        id: bump
+        run: |
+          NEW_VERSION=$(node scripts/bump-version.js pr ${{ github.event.pull_request.number }})
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Create or update pre-release draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.bump.outputs.version }}"
+          
+          # Delete existing release and tag if it exists to replace with updated assets
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists. Deleting old release and tag..."
+            gh release delete "$tag" --yes
+            git push origin :refs/tags/"$tag" || true
+          fi
+          
+          gh release create "$tag" \
+            --prerelease \
+            --draft \
+            --title "Preview: $tag" \
+            --notes "Preview release for Pull Request #${{ github.event.pull_request.number }}" \
+            main.js manifest.json styles.css
+
+  production-release:
+    name: Production Release
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine bump type
+        id: determine-bump
+        run: |
+          pr_title="${{ github.event.pull_request.title }}"
+          echo "PR Title: $pr_title"
+          
+          # Match conventional commit breaking change: type(scope)!: or type!:
+          if [[ "$pr_title" =~ ^[a-zA-Z0-9_-]+(\([a-zA-Z0-9_-]+\))?\!: ]]; then
+            bump_type="major"
+          # Match conventional commit feature: feat(scope): or feat:
+          elif [[ "$pr_title" =~ ^feat(\([a-zA-Z0-9_-]+\))?: ]]; then
+            bump_type="minor"
+          else
+            bump_type="patch"
+          fi
+          
+          echo "Determined bump type: $bump_type"
+          echo "bump_type=$bump_type" >> $GITHUB_OUTPUT
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Run version bump script
+        id: bump
+        run: |
+          NEW_VERSION=$(node scripts/bump-version.js ${{ steps.determine-bump.outputs.bump_type }})
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json package.json versions.json
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }} [skip ci]"
+          git tag "${{ steps.bump.outputs.version }}"
+          git push origin main
+          git push origin "${{ steps.bump.outputs.version }}"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Create production draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.bump.outputs.version }}"
+          gh release create "$tag" \
+            --title="$tag" \
+            --draft \
+            main.js manifest.json styles.css

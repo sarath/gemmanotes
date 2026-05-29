@@ -45,7 +45,7 @@ export interface TranscriptionBackend {
   /** Rewrite already-transcribed text into tidy prose (text-only call). */
   rewrite(text: string): Promise<string>;
   /** Free model memory. */
-  unload(): void;
+  unload(): Promise<void>;
 }
 
 /** True when the renderer exposes a usable WebGPU adapter. */
@@ -59,10 +59,44 @@ export async function detectWebGPU(): Promise<boolean> {
   }
 }
 
+
+/**
+ * Wraps a progress callback to throttle updates during high-frequency download events.
+ * It will trigger immediately if:
+ * 1. The progress represents a final state (fraction is 1.0, null, or label contains "ready" or "memory").
+ * 2. The rounded integer percentage changes AND at least intervalMs (default 300ms) has passed since the last trigger.
+ */
+function throttleProgress(
+  onProgress: (u: ProgressUpdate) => void,
+  intervalMs = 300
+): (u: ProgressUpdate) => void {
+  let lastTriggerTime = 0;
+  let lastPercent = -1;
+
+  return (u: ProgressUpdate) => {
+    const fraction = u.fraction;
+    const isFinal =
+      fraction === 1.0 ||
+      fraction === null ||
+      u.label.includes("ready") ||
+      u.label.includes("memory") ||
+      u.label.includes("ready.");
+
+    const percent = fraction !== null ? Math.round(fraction * 100) : -1;
+    const now = Date.now();
+
+    if (isFinal || (percent !== lastPercent && now - lastTriggerTime >= intervalMs)) {
+      lastTriggerTime = now;
+      lastPercent = percent;
+      onProgress(u);
+    }
+  };
+}
+
 export class GemmaBackend implements TranscriptionBackend {
   private model: any = null;
   private processor: any = null;
-  private variant: ModelVariant;
+  readonly variant: ModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
 
@@ -78,6 +112,8 @@ export class GemmaBackend implements TranscriptionBackend {
 
   async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.ready) return;
+
+    const throttledProgress = throttleProgress(onProgress, 300);
 
     // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
     const tfjs = await import("@huggingface/transformers");
@@ -102,9 +138,9 @@ export class GemmaBackend implements TranscriptionBackend {
       if (typeof p?.progress === "number" && p.status !== "done") {
         seen.set(p.file ?? p.status, p.progress);
         const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
-        onProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
+        throttledProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
       } else if (p?.status === "ready" || p?.status === "done") {
-        onProgress({ fraction: 1, label: "Loading model into memory…" });
+        throttledProgress({ fraction: 1, label: "Loading model into memory…" });
       }
     };
 
@@ -114,12 +150,14 @@ export class GemmaBackend implements TranscriptionBackend {
       device: this.device,
       progress_callback,
     });
-    onProgress({ fraction: 1, label: "Model ready." });
+    throttledProgress({ fraction: 1, label: "Model ready." });
   }
 
-  unload(): void {
-    this.model?.dispose?.();
-    this.model = null;
+  async unload(): Promise<void> {
+    if (this.model) {
+      await this.model.dispose?.();
+      this.model = null;
+    }
     this.processor = null;
   }
 
@@ -183,15 +221,33 @@ export class GemmaBackend implements TranscriptionBackend {
       do_sample: false,
     });
 
+    const slicedOutputs = outputs.slice(null, [inputs.input_ids.dims.at(-1), null]);
     const decoded: string[] = this.processor.batch_decode(
-      outputs.slice(null, [inputs.input_ids.dims.at(-1), null]),
+      slicedOutputs,
       { skip_special_tokens: true },
     );
+
+    // Dispose of intermediate tensors to prevent GPU/VRAM memory accumulation
+    if (inputs) {
+      for (const value of Object.values(inputs)) {
+        if (value && typeof (value as any).dispose === "function") {
+          (value as any).dispose();
+        }
+      }
+    }
+    if (outputs && typeof outputs.dispose === "function") {
+      outputs.dispose();
+    }
+    if (slicedOutputs && typeof slicedOutputs.dispose === "function") {
+      slicedOutputs.dispose();
+    }
+
     return decoded[0]?.trim() ?? "";
   }
 }
 
 export class WhisperBackend implements TranscriptionBackend {
+  readonly variant: TranscriptionModelVariant = "Whisper-Tiny";
   private pipeline: any = null;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
@@ -208,6 +264,8 @@ export class WhisperBackend implements TranscriptionBackend {
   async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.ready) return;
 
+    const throttledProgress = throttleProgress(onProgress, 300);
+
     const tfjs = await import("@huggingface/transformers");
     const { pipeline, env } = tfjs as any;
 
@@ -223,9 +281,9 @@ export class WhisperBackend implements TranscriptionBackend {
       if (typeof p?.progress === "number" && p.status !== "done") {
         seen.set(p.file ?? p.status, p.progress);
         const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
-        onProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
+        throttledProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
       } else if (p?.status === "ready" || p?.status === "done") {
-        onProgress({ fraction: 1, label: "Loading model into memory…" });
+        throttledProgress({ fraction: 1, label: "Loading model into memory…" });
       }
     };
 
@@ -233,12 +291,18 @@ export class WhisperBackend implements TranscriptionBackend {
       device: this.device,
       progress_callback,
     });
-    onProgress({ fraction: 1, label: "Model ready." });
+    throttledProgress({ fraction: 1, label: "Model ready." });
   }
 
-  unload(): void {
-    this.pipeline?.model?.dispose?.();
-    this.pipeline = null;
+  async unload(): Promise<void> {
+    if (this.pipeline) {
+      if (typeof this.pipeline.dispose === "function") {
+        await this.pipeline.dispose();
+      } else if (this.pipeline.model) {
+        await this.pipeline.model.dispose?.();
+      }
+      this.pipeline = null;
+    }
   }
 
   async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
@@ -313,10 +377,69 @@ export class DualBackend implements TranscriptionBackend {
     return this.rxBackend.rewrite(text);
   }
 
-  unload(): void {
-    this.txBackend.unload();
-    if (this.txBackend !== this.rxBackend) {
-      this.rxBackend.unload();
+  async updateVariants(
+    txVariant: TranscriptionModelVariant,
+    rxVariant: RewriteModelVariant,
+    useWebGPU: boolean,
+    cacheDir: string
+  ): Promise<void> {
+    const existing = new Set<TranscriptionBackend>();
+    if (this.txBackend) existing.add(this.txBackend);
+    if (this.rxBackend) existing.add(this.rxBackend);
+
+    let newTxBackend: TranscriptionBackend;
+    let newRxBackend: TranscriptionBackend;
+
+    // Find or create txBackend
+    const foundTx = Array.from(existing).find(
+      (b) =>
+        (b instanceof GemmaBackend && b.variant === txVariant) ||
+        (b instanceof WhisperBackend && txVariant === "Whisper-Tiny")
+    );
+    if (foundTx) {
+      newTxBackend = foundTx;
+    } else {
+      newTxBackend =
+        txVariant === "Whisper-Tiny"
+          ? new WhisperBackend(useWebGPU, cacheDir)
+          : new GemmaBackend(txVariant, useWebGPU, cacheDir);
     }
+
+    // Find or create rxBackend
+    if ((txVariant as string) === rxVariant) {
+      newRxBackend = newTxBackend;
+    } else {
+      const foundRx = Array.from(existing).find(
+        (b) => b instanceof GemmaBackend && b.variant === rxVariant
+      );
+      if (foundRx) {
+        newRxBackend = foundRx;
+      } else {
+        newRxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
+      }
+    }
+
+    // Determine backends to unload
+    const toUnload = Array.from(existing).filter(
+      (b) => b !== newTxBackend && b !== newRxBackend
+    );
+
+    // Unload them in parallel and await their disposal
+    await Promise.all(toUnload.map((b) => b.unload()));
+
+    // Assign new backends
+    this.txBackend = newTxBackend;
+    this.rxBackend = newRxBackend;
+  }
+
+  async unload(): Promise<void> {
+    const promises = [];
+    if (this.txBackend) {
+      promises.push(this.txBackend.unload());
+    }
+    if (this.rxBackend && this.rxBackend !== this.txBackend) {
+      promises.push(this.rxBackend.unload());
+    }
+    await Promise.all(promises);
   }
 }

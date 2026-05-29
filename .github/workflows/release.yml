@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -38,24 +39,37 @@ jobs:
         run: npm run build
 
       - name: Create or update pre-release draft
+        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.bump.outputs.version }}"
-          
+
           # Delete existing release and tag if it exists to replace with updated assets
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists. Deleting old release and tag..."
             gh release delete "$tag" --yes
             git push origin :refs/tags/"$tag" || true
           fi
-          
-          gh release create "$tag" \
+
+          release_url=$(gh release create "$tag" \
+            --target "${{ github.event.pull_request.head.sha }}" \
             --prerelease \
             --draft \
             --title "Preview: $tag" \
             --notes "Preview release for Pull Request #${{ github.event.pull_request.number }}" \
-            main.js manifest.json styles.css
+            main.js manifest.json styles.css)
+          echo "url=$release_url" >> $GITHUB_OUTPUT
+
+      - name: Comment draft release link on PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.bump.outputs.version }}"
+          body=$(printf '📦 **Draft preview release ready:** `%s`\n\n[Review and publish the draft release →](%s)' \
+            "$tag" "${{ steps.release.outputs.url }}")
+          gh pr comment "${{ github.event.pull_request.number }}" --edit-last --body "$body" \
+            || gh pr comment "${{ github.event.pull_request.number }}" --body "$body"
 
   production-release:
     name: Production Release

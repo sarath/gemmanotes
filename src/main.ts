@@ -48,7 +48,7 @@ export default class GemmaNotesPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     this.webGPUAvailable = await detectWebGPU();
-    this.resetBackend();
+    await this.resetBackend();
 
     this.queue = new TranscriptionQueue(
       () => this.backend,
@@ -100,7 +100,7 @@ export default class GemmaNotesPlugin extends Plugin {
 
   onunload(): void {
     this.recorder.cancel();
-    this.backend.unload();
+    void this.backend?.unload();
     if (this.timer != null) window.clearInterval(this.timer);
     if (this.activeJobId && this.activeJobFilePath) {
       void clearToken(this.app, this.activeJobFilePath, this.activeJobId);
@@ -109,9 +109,23 @@ export default class GemmaNotesPlugin extends Plugin {
 
   // --- Backend lifecycle ---------------------------------------------------
 
-  /** Recreate the backend, e.g. after the model variant changed. */
-  resetBackend(): void {
-    this.backend?.unload();
+  /** Recreate or update the backend, e.g. after the model variant changed. */
+  async resetBackend(): Promise<void> {
+    if (this.backend) {
+      if (this.backend instanceof DualBackend) {
+        await this.backend.updateVariants(
+          this.settings.transcriptionModel,
+          this.settings.rewriteModel,
+          this.webGPUAvailable,
+          this.getCacheDir(),
+        );
+        this.loadPromise = null;
+        void this.loadModelsIfDownloaded();
+        return;
+      }
+      await this.backend.unload();
+    }
+
     this.backend = new DualBackend(
       this.settings.transcriptionModel,
       this.settings.rewriteModel,

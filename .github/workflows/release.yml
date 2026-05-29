@@ -51,6 +51,7 @@ jobs:
           fi
           
           gh release create "$tag" \
+            --target "${{ github.event.pull_request.head.sha }}" \
             --prerelease \
             --draft \
             --title "Preview: $tag" \

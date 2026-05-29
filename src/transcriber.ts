@@ -183,10 +183,27 @@ export class GemmaBackend implements TranscriptionBackend {
       do_sample: false,
     });
 
+    const slicedOutputs = outputs.slice(null, [inputs.input_ids.dims.at(-1), null]);
     const decoded: string[] = this.processor.batch_decode(
-      outputs.slice(null, [inputs.input_ids.dims.at(-1), null]),
+      slicedOutputs,
       { skip_special_tokens: true },
     );
+
+    // Dispose of intermediate tensors to prevent GPU/VRAM memory accumulation
+    if (inputs) {
+      for (const value of Object.values(inputs)) {
+        if (value && typeof (value as any).dispose === "function") {
+          (value as any).dispose();
+        }
+      }
+    }
+    if (outputs && typeof outputs.dispose === "function") {
+      outputs.dispose();
+    }
+    if (slicedOutputs && typeof slicedOutputs.dispose === "function") {
+      slicedOutputs.dispose();
+    }
+
     return decoded[0]?.trim() ?? "";
   }
 }

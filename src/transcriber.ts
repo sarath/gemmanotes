@@ -45,7 +45,7 @@ export interface TranscriptionBackend {
   /** Rewrite already-transcribed text into tidy prose (text-only call). */
   rewrite(text: string): Promise<string>;
   /** Free model memory. */
-  unload(): void;
+  unload(): Promise<void>;
 }
 
 /** True when the renderer exposes a usable WebGPU adapter. */
@@ -96,7 +96,7 @@ function throttleProgress(
 export class GemmaBackend implements TranscriptionBackend {
   private model: any = null;
   private processor: any = null;
-  private variant: ModelVariant;
+  readonly variant: ModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
 
@@ -153,9 +153,11 @@ export class GemmaBackend implements TranscriptionBackend {
     throttledProgress({ fraction: 1, label: "Model ready." });
   }
 
-  unload(): void {
-    this.model?.dispose?.();
-    this.model = null;
+  async unload(): Promise<void> {
+    if (this.model) {
+      await this.model.dispose?.();
+      this.model = null;
+    }
     this.processor = null;
   }
 
@@ -245,6 +247,7 @@ export class GemmaBackend implements TranscriptionBackend {
 }
 
 export class WhisperBackend implements TranscriptionBackend {
+  readonly variant: TranscriptionModelVariant = "Whisper-Tiny";
   private pipeline: any = null;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
@@ -291,9 +294,15 @@ export class WhisperBackend implements TranscriptionBackend {
     throttledProgress({ fraction: 1, label: "Model ready." });
   }
 
-  unload(): void {
-    this.pipeline?.model?.dispose?.();
-    this.pipeline = null;
+  async unload(): Promise<void> {
+    if (this.pipeline) {
+      if (typeof this.pipeline.dispose === "function") {
+        await this.pipeline.dispose();
+      } else if (this.pipeline.model) {
+        await this.pipeline.model.dispose?.();
+      }
+      this.pipeline = null;
+    }
   }
 
   async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
@@ -368,10 +377,69 @@ export class DualBackend implements TranscriptionBackend {
     return this.rxBackend.rewrite(text);
   }
 
-  unload(): void {
-    this.txBackend.unload();
-    if (this.txBackend !== this.rxBackend) {
-      this.rxBackend.unload();
+  async updateVariants(
+    txVariant: TranscriptionModelVariant,
+    rxVariant: RewriteModelVariant,
+    useWebGPU: boolean,
+    cacheDir: string
+  ): Promise<void> {
+    const existing = new Set<TranscriptionBackend>();
+    if (this.txBackend) existing.add(this.txBackend);
+    if (this.rxBackend) existing.add(this.rxBackend);
+
+    let newTxBackend: TranscriptionBackend;
+    let newRxBackend: TranscriptionBackend;
+
+    // Find or create txBackend
+    const foundTx = Array.from(existing).find(
+      (b) =>
+        (b instanceof GemmaBackend && b.variant === txVariant) ||
+        (b instanceof WhisperBackend && txVariant === "Whisper-Tiny")
+    );
+    if (foundTx) {
+      newTxBackend = foundTx;
+    } else {
+      newTxBackend =
+        txVariant === "Whisper-Tiny"
+          ? new WhisperBackend(useWebGPU, cacheDir)
+          : new GemmaBackend(txVariant, useWebGPU, cacheDir);
     }
+
+    // Find or create rxBackend
+    if ((txVariant as string) === rxVariant) {
+      newRxBackend = newTxBackend;
+    } else {
+      const foundRx = Array.from(existing).find(
+        (b) => b instanceof GemmaBackend && b.variant === rxVariant
+      );
+      if (foundRx) {
+        newRxBackend = foundRx;
+      } else {
+        newRxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
+      }
+    }
+
+    // Determine backends to unload
+    const toUnload = Array.from(existing).filter(
+      (b) => b !== newTxBackend && b !== newRxBackend
+    );
+
+    // Unload them in parallel and await their disposal
+    await Promise.all(toUnload.map((b) => b.unload()));
+
+    // Assign new backends
+    this.txBackend = newTxBackend;
+    this.rxBackend = newRxBackend;
+  }
+
+  async unload(): Promise<void> {
+    const promises = [];
+    if (this.txBackend) {
+      promises.push(this.txBackend.unload());
+    }
+    if (this.rxBackend && this.rxBackend !== this.txBackend) {
+      promises.push(this.rxBackend.unload());
+    }
+    await Promise.all(promises);
   }
 }

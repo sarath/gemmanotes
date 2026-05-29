@@ -30,7 +30,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             s.transcriptionModel = v as TranscriptionModelVariant;
             await this.plugin.saveSettings();
-            this.plugin.resetBackend();
+            await this.plugin.resetBackend();
             this.display();
           }),
       );
@@ -46,7 +46,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             s.rewriteModel = v as RewriteModelVariant;
             await this.plugin.saveSettings();
-            this.plugin.resetBackend();
+            await this.plugin.resetBackend();
             this.display();
           }),
       );

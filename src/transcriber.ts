@@ -59,6 +59,40 @@ export async function detectWebGPU(): Promise<boolean> {
   }
 }
 
+
+/**
+ * Wraps a progress callback to throttle updates during high-frequency download events.
+ * It will trigger immediately if:
+ * 1. The progress represents a final state (fraction is 1.0, null, or label contains "ready" or "memory").
+ * 2. The rounded integer percentage changes AND at least intervalMs (default 300ms) has passed since the last trigger.
+ */
+function throttleProgress(
+  onProgress: (u: ProgressUpdate) => void,
+  intervalMs = 300
+): (u: ProgressUpdate) => void {
+  let lastTriggerTime = 0;
+  let lastPercent = -1;
+
+  return (u: ProgressUpdate) => {
+    const fraction = u.fraction;
+    const isFinal =
+      fraction === 1.0 ||
+      fraction === null ||
+      u.label.includes("ready") ||
+      u.label.includes("memory") ||
+      u.label.includes("ready.");
+
+    const percent = fraction !== null ? Math.round(fraction * 100) : -1;
+    const now = Date.now();
+
+    if (isFinal || (percent !== lastPercent && now - lastTriggerTime >= intervalMs)) {
+      lastTriggerTime = now;
+      lastPercent = percent;
+      onProgress(u);
+    }
+  };
+}
+
 export class GemmaBackend implements TranscriptionBackend {
   private model: any = null;
   private processor: any = null;
@@ -78,6 +112,8 @@ export class GemmaBackend implements TranscriptionBackend {
 
   async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.ready) return;
+
+    const throttledProgress = throttleProgress(onProgress, 300);
 
     // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
     const tfjs = await import("@huggingface/transformers");
@@ -102,9 +138,9 @@ export class GemmaBackend implements TranscriptionBackend {
       if (typeof p?.progress === "number" && p.status !== "done") {
         seen.set(p.file ?? p.status, p.progress);
         const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
-        onProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
+        throttledProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
       } else if (p?.status === "ready" || p?.status === "done") {
-        onProgress({ fraction: 1, label: "Loading model into memory…" });
+        throttledProgress({ fraction: 1, label: "Loading model into memory…" });
       }
     };
 
@@ -114,7 +150,7 @@ export class GemmaBackend implements TranscriptionBackend {
       device: this.device,
       progress_callback,
     });
-    onProgress({ fraction: 1, label: "Model ready." });
+    throttledProgress({ fraction: 1, label: "Model ready." });
   }
 
   unload(): void {
@@ -225,6 +261,8 @@ export class WhisperBackend implements TranscriptionBackend {
   async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
     if (this.ready) return;
 
+    const throttledProgress = throttleProgress(onProgress, 300);
+
     const tfjs = await import("@huggingface/transformers");
     const { pipeline, env } = tfjs as any;
 
@@ -240,9 +278,9 @@ export class WhisperBackend implements TranscriptionBackend {
       if (typeof p?.progress === "number" && p.status !== "done") {
         seen.set(p.file ?? p.status, p.progress);
         const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
-        onProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
+        throttledProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
       } else if (p?.status === "ready" || p?.status === "done") {
-        onProgress({ fraction: 1, label: "Loading model into memory…" });
+        throttledProgress({ fraction: 1, label: "Loading model into memory…" });
       }
     };
 
@@ -250,7 +288,7 @@ export class WhisperBackend implements TranscriptionBackend {
       device: this.device,
       progress_callback,
     });
-    onProgress({ fraction: 1, label: "Model ready." });
+    throttledProgress({ fraction: 1, label: "Model ready." });
   }
 
   unload(): void {

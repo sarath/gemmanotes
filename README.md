@@ -4,6 +4,8 @@ Push-to-talk voice notes for Obsidian, transcribed **entirely on-device** with
 Google's Gemma 4 (E2B / E4B) running in-process via transformers.js. No server,
 no API key — fully offline after a one-time model download.
 
+https://community.obsidian.md/plugins/gemmanotes
+
 Built with Love and Antigravity CLI, Gemini 3.5 Flash
 
 ```

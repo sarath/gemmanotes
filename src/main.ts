@@ -18,6 +18,8 @@ import {
   startTranscribing,
 } from "./insertion";
 import { getPlaceholderPlugin, refreshEffect } from "./editor-extension";
+import { getSelectionRewritePlugin } from "./selection-rewrite";
+import { RewritePreviewModal } from "./rewrite-modal";
 
 /** A completed insert that can still be swapped for a rewrite. */
 interface RewriteCandidate {
@@ -83,6 +85,30 @@ export default class GemmaNotesPlugin extends Plugin {
         applyRewrite: () => this.applyRewrite(),
         stopRecording: () => this.stopRecording(),
         isRewriting: () => this.rewriting,
+      }),
+    );
+
+    this.registerEditorExtension(
+      getSelectionRewritePlugin({
+        isEnabled: () => this.settings.enableSelectionRewrite,
+        getMinWords: () => this.settings.selectionRewriteMinWords,
+        isModelReady: () => {
+          const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
+          if (!rxDownloaded) {
+            new Notice("GemmaNotes: download the selected rewrite model in settings first.");
+            return false;
+          }
+          return true;
+        },
+        rewriteText: async (text: string) => {
+          if (this.loadPromise) {
+            await this.loadPromise;
+          }
+          return await this.backend.rewrite(text);
+        },
+        openPreviewModal: (originalText: string, rewrittenText: string, onSubmit: (finalText: string) => void) => {
+          new RewritePreviewModal(this.app, originalText, rewrittenText, onSubmit).open();
+        },
       }),
     );
 

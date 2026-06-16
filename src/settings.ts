@@ -192,5 +192,31 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    // --- Selection Rewriting ------------------------------------------------
+    new Setting(containerEl).setName("Selection Rewriting").setHeading();
+
+    new Setting(containerEl)
+      .setName("Enable selection rewrite")
+      .setDesc("Show a rewrite helper tooltip when selecting text in the editor.")
+      .addToggle((t) =>
+        t.setValue(s.enableSelectionRewrite).onChange(async (v) => {
+          s.enableSelectionRewrite = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Minimum word threshold")
+      .setDesc("Minimum number of selected words to trigger the rewrite helper.")
+      .addText((t) =>
+        t
+          .setValue(String(s.selectionRewriteMinWords))
+          .onChange(async (v) => {
+            const num = parseInt(v, 10);
+            s.selectionRewriteMinWords = isNaN(num) || num < 1 ? 10 : num;
+            await this.plugin.saveSettings();
+          }),
+      );
   }
 }

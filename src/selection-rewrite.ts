@@ -187,14 +187,13 @@ class SelectionRewritePluginValue {
         }
       }
 
-      // Replace selection in editor at the exact saved range and keep the new text selected
+      // Replace selection in editor at the exact saved range and place cursor at the end (unselected)
       const tr = this.view.state.update({
         changes: {
           from: range.from,
           to: range.to,
           insert: rewritten,
         },
-        selection: { anchor: range.from, head: range.from + rewritten.length },
         userEvent: "input",
       });
       this.view.dispatch(tr);

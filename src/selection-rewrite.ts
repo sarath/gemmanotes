@@ -5,11 +5,8 @@ export interface SelectionRewriteProvider {
   getMinWords(): number;
   isModelReady(): boolean;
   rewriteText(text: string): Promise<string>;
-  openPreviewModal(
-    originalText: string,
-    rewrittenText: string,
-    onSubmit: (finalText: string) => void,
-  ): void;
+  shouldCopyRewriteToClipboard(): boolean;
+  showNotice(message: string): void;
 }
 
 class SelectionRewritePluginValue {
@@ -179,17 +176,28 @@ class SelectionRewritePluginValue {
 
     try {
       const rewritten = await this.provider.rewriteText(selectedText);
-      this.provider.openPreviewModal(selectedText, rewritten, (finalText) => {
-        // Replace selection in editor at the exact saved range
-        const tr = this.view.state.update({
-          changes: {
-            from: range.from,
-            to: range.to,
-            insert: finalText,
-          },
-        });
-        this.view.dispatch(tr);
+
+      // Copy to clipboard if enabled in settings
+      if (this.provider.shouldCopyRewriteToClipboard()) {
+        try {
+          await navigator.clipboard.writeText(rewritten);
+          this.provider.showNotice("GemmaNotes: rewritten text copied to clipboard.");
+        } catch (clipErr) {
+          console.error("GemmaNotes: failed to copy rewrite to clipboard", clipErr);
+        }
+      }
+
+      // Replace selection in editor at the exact saved range and keep the new text selected
+      const tr = this.view.state.update({
+        changes: {
+          from: range.from,
+          to: range.to,
+          insert: rewritten,
+        },
+        selection: { anchor: range.from, head: range.from + rewritten.length },
+        userEvent: "input",
       });
+      this.view.dispatch(tr);
     } catch (err) {
       console.error("GemmaNotes: selection rewrite failed", err);
     } finally {

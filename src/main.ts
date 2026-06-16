@@ -19,7 +19,6 @@ import {
 } from "./insertion";
 import { getPlaceholderPlugin, refreshEffect } from "./editor-extension";
 import { getSelectionRewritePlugin } from "./selection-rewrite";
-import { RewritePreviewModal } from "./rewrite-modal";
 
 /** A completed insert that can still be swapped for a rewrite. */
 interface RewriteCandidate {
@@ -106,8 +105,9 @@ export default class GemmaNotesPlugin extends Plugin {
           }
           return await this.backend.rewrite(text);
         },
-        openPreviewModal: (originalText: string, rewrittenText: string, onSubmit: (finalText: string) => void) => {
-          new RewritePreviewModal(this.app, originalText, rewrittenText, onSubmit).open();
+        shouldCopyRewriteToClipboard: () => this.settings.copyRewriteToClipboard,
+        showNotice: (message: string) => {
+          new Notice(message);
         },
       }),
     );

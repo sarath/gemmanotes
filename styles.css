@@ -104,3 +104,35 @@
   transform: scale(1.35) rotate(18deg);
   filter: drop-shadow(0 0 5px rgba(253, 224, 71, 0.8));
 }
+
+/* Selection Rewrite Tooltip */
+.gemmanotes-selection-tooltip {
+  position: absolute;
+  z-index: 10000;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.gemmanotes-selection-tooltip:hover:not(.is-loading) {
+  background-color: var(--background-primary);
+  border-color: var(--text-accent);
+  transform: translateY(-1px);
+}
+
+.gemmanotes-selection-tooltip.is-loading {
+  cursor: default;
+  opacity: 0.85;
+}
+

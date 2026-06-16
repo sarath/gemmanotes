@@ -32,6 +32,10 @@ export interface GemmaNotesSettings {
   keepAudio: boolean;
   /** Automatically copy rewritten text to clipboard. */
   copyRewriteToClipboard: boolean;
+  /** Enable selection rewrite helper when selecting text. */
+  enableSelectionRewrite: boolean;
+  /** Minimum number of words to show the selection rewrite helper. */
+  selectionRewriteMinWords: number;
 }
 
 export const DEFAULT_SETTINGS: GemmaNotesSettings = {
@@ -48,6 +52,8 @@ export const DEFAULT_SETTINGS: GemmaNotesSettings = {
   language: "auto",
   keepAudio: false,
   copyRewriteToClipboard: false,
+  enableSelectionRewrite: true,
+  selectionRewriteMinWords: 10,
 };
 
 /** ONNX model repo ids on the Hugging Face hub. */

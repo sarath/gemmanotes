@@ -169,20 +169,6 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
-
-    // --- Audio -------------------------------------------------------------
-    new Setting(containerEl).setName("Audio").setHeading();
-
-    new Setting(containerEl)
-      .setName("Keep recordings")
-      .setDesc("Save each recording as a vault attachment instead of discarding it.")
-      .addToggle((t) =>
-        t.setValue(s.keepAudio).onChange(async (v) => {
-          s.keepAudio = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-
     new Setting(containerEl)
       .setName("Copy rewrites to clipboard")
       .setDesc("Automatically copy rewritten text to the clipboard when completed.")
@@ -217,6 +203,19 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             s.selectionRewriteMinWords = isNaN(num) || num < 1 ? 10 : num;
             await this.plugin.saveSettings();
           }),
+      );
+
+    // --- Audio -------------------------------------------------------------
+    new Setting(containerEl).setName("Audio").setHeading();
+
+    new Setting(containerEl)
+      .setName("Keep recordings")
+      .setDesc("Save each recording as a vault attachment instead of discarding it.")
+      .addToggle((t) =>
+        t.setValue(s.keepAudio).onChange(async (v) => {
+          s.keepAudio = v;
+          await this.plugin.saveSettings();
+        }),
       );
   }
 }

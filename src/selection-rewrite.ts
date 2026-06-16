@@ -16,6 +16,8 @@ class SelectionRewritePluginValue {
   tooltipEl: HTMLElement | null = null;
   rewritingInProgress = false;
   scrollListener: (() => void) | null = null;
+  currentSelectedText = "";
+  currentSelectionRange: { from: number; to: number } | null = null;
 
   constructor(
     readonly view: EditorView,
@@ -86,8 +88,8 @@ class SelectionRewritePluginValue {
       return;
     }
 
-    const selectedText = state.doc.sliceString(selRange.from, selRange.to).trim();
-    if (!selectedText) {
+    const selectedText = state.doc.sliceString(selRange.from, selRange.to);
+    if (!selectedText.trim()) {
       this.removeTooltip();
       return;
     }
@@ -104,10 +106,13 @@ class SelectionRewritePluginValue {
       return;
     }
 
-    this.showTooltip(selectedText);
+    this.currentSelectedText = selectedText;
+    this.currentSelectionRange = { from: selRange.from, to: selRange.to };
+
+    this.showTooltip();
   }
 
-  showTooltip(selectedText: string) {
+  showTooltip() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
       this.removeTooltip();
@@ -130,7 +135,9 @@ class SelectionRewritePluginValue {
       this.tooltipEl.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        await this.startRewrite(selectedText);
+        if (this.currentSelectionRange) {
+          await this.startRewrite(this.currentSelectedText, this.currentSelectionRange);
+        }
       });
 
       document.body.appendChild(this.tooltipEl);
@@ -156,7 +163,7 @@ class SelectionRewritePluginValue {
     this.tooltipEl.style.top = `${top + window.scrollY}px`;
   }
 
-  async startRewrite(selectedText: string) {
+  async startRewrite(selectedText: string, range: { from: number; to: number }) {
     if (this.rewritingInProgress) return;
 
     if (!this.provider.isModelReady()) {
@@ -173,8 +180,14 @@ class SelectionRewritePluginValue {
     try {
       const rewritten = await this.provider.rewriteText(selectedText);
       this.provider.openPreviewModal(selectedText, rewritten, (finalText) => {
-        // Replace selection in editor
-        const tr = this.view.state.replaceSelection(finalText);
+        // Replace selection in editor at the exact saved range
+        const tr = this.view.state.update({
+          changes: {
+            from: range.from,
+            to: range.to,
+            insert: finalText,
+          },
+        });
         this.view.dispatch(tr);
       });
     } catch (err) {

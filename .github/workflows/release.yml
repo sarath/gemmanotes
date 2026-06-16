@@ -38,7 +38,7 @@ jobs:
       - name: Build plugin
         run: npm run build
 
-      - name: Create or update pre-release draft
+      - name: Create or update pre-release
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,18 +55,17 @@ jobs:
           release_url=$(gh release create "$tag" \
             --target "${{ github.event.pull_request.head.sha }}" \
             --prerelease \
-            --draft \
             --title "Preview: $tag" \
             --notes "Preview release for Pull Request #${{ github.event.pull_request.number }}" \
             main.js manifest.json styles.css)
           echo "url=$release_url" >> $GITHUB_OUTPUT
 
-      - name: Comment draft release link on PR
+      - name: Comment preview release link on PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.bump.outputs.version }}"
-          body=$(printf '📦 **Draft preview release ready:** `%s`\n\n[Review and publish the draft release →](%s)' \
+          body=$(printf '📦 **Preview release ready:** `%s`\n\n[View preview release →](%s)' \
             "$tag" "${{ steps.release.outputs.url }}")
           gh pr comment "${{ github.event.pull_request.number }}" --edit-last --body "$body" \
             || gh pr comment "${{ github.event.pull_request.number }}" --body "$body"

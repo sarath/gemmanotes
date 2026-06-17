@@ -5,6 +5,10 @@ import type GemmaNotesPlugin from "./main";
 import { MODEL_SIZES } from "./types";
 import type { TranscriptionModelVariant, RewriteModelVariant, Placement, Style } from "./types";
 
+interface Displayable {
+  display(): void;
+}
+
 export class GemmaNotesSettingTab extends PluginSettingTab {
   constructor(app: App, private plugin: GemmaNotesPlugin) {
     super(app, plugin);
@@ -31,8 +35,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             s.transcriptionModel = v as TranscriptionModelVariant;
             await this.plugin.saveSettings();
             await this.plugin.resetBackend();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            this.display();
+            (this as unknown as Displayable).display();
           }),
       );
 
@@ -48,8 +51,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             s.rewriteModel = v as RewriteModelVariant;
             await this.plugin.saveSettings();
             await this.plugin.resetBackend();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            this.display();
+            (this as unknown as Displayable).display();
           }),
       );
 
@@ -85,8 +87,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
               fill.style.width = `${Math.round((u.fraction ?? 0) * 100)}%`;
               downloadSetting.setDesc(u.label);
             });
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            this.display();
+            (this as unknown as Displayable).display();
           } catch (e) {
             console.error("GemmaNotes: model load failed", e);
             downloadSetting.setDesc(`Download failed: ${String(e)}`);

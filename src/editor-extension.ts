@@ -6,7 +6,7 @@ import {
   ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import { StateEffect } from "@codemirror/state";
+import { Range, StateEffect } from "@codemirror/state";
 
 export const refreshEffect = StateEffect.define<void>();
 
@@ -92,7 +92,7 @@ class RewriteWidget extends WidgetType {
 }
 
 function buildDecorations(view: EditorView, provider: EditorWidgetProvider): DecorationSet {
-  const builder: any[] = [];
+  const builder: Range<Decoration>[] = [];
 
   for (const { from, to } of view.visibleRanges) {
     const text = view.state.doc.sliceString(from, to);

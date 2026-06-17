@@ -129,11 +129,11 @@ class SelectionRewritePluginValue {
         e.stopPropagation();
       });
 
-      this.tooltipEl.addEventListener("click", async (e) => {
+      this.tooltipEl.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (this.currentSelectionRange) {
-          await this.startRewrite(this.currentSelectedText, this.currentSelectionRange);
+          void this.startRewrite(this.currentSelectedText, this.currentSelectionRange);
         }
       });
 

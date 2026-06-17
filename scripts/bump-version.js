@@ -56,7 +56,6 @@ function main() {
     patch++;
     nextVersion = `${major}.${minor}.${patch}`;
   } else if (bumpType === "pr") {
-    patch++;
     nextVersion = `${major}.${minor}.${patch}-pr.${prNumber}`;
   } else {
     console.error(`Error: Invalid bump type '${bumpType}'. Must be major, minor, patch, or pr.`);

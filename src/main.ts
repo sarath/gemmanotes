@@ -19,6 +19,11 @@ import {
 } from "./insertion";
 import { getPlaceholderPlugin, refreshEffect } from "./editor-extension";
 import { getSelectionRewritePlugin } from "./selection-rewrite";
+import { EditorView } from "@codemirror/view";
+
+interface CodeMirrorEditor {
+  cm?: EditorView;
+}
 
 /** A completed insert that can still be swapped for a rewrite. */
 interface RewriteCandidate {
@@ -299,7 +304,7 @@ export default class GemmaNotesPlugin extends Plugin {
     if (this.loadPromise) {
       try {
         await this.loadPromise;
-      } catch (e) {
+      } catch {
         // Ignored here (already logged)
       }
     }
@@ -325,7 +330,7 @@ export default class GemmaNotesPlugin extends Plugin {
 
       try {
         await this.loadPromise;
-        console.log("GemmaNotes: model load successful");
+        console.debug("GemmaNotes: model load successful");
         new Notice("GemmaNotes: Models loaded and ready.");
       } catch (e) {
         console.error("GemmaNotes: background model load failed", e);
@@ -396,13 +401,16 @@ export default class GemmaNotesPlugin extends Plugin {
 
   private refreshEditor(): void {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (view && (view.editor as any).cm) {
-      try {
-        (view.editor as any).cm.dispatch({
-          effects: refreshEffect.of(),
-        });
-      } catch (e) {
-        console.error("GemmaNotes: failed to refresh editor view", e);
+    if (view) {
+      const cmEditor = view.editor as unknown as CodeMirrorEditor;
+      if (cmEditor.cm) {
+        try {
+          cmEditor.cm.dispatch({
+            effects: refreshEffect.of(),
+          });
+        } catch (e) {
+          console.error("GemmaNotes: failed to refresh editor view", e);
+        }
       }
     }
   }
@@ -509,7 +517,8 @@ export default class GemmaNotesPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const loadedData = (await this.loadData()) as Record<string, unknown> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
 
     let migrated = false;
     // Migration logic for old settings format
@@ -518,7 +527,11 @@ export default class GemmaNotesPlugin extends Plugin {
         this.settings.transcriptionModel = this.settings.modelVariant;
       }
       if (!this.settings.rewriteModel) {
-        this.settings.rewriteModel = this.settings.modelVariant as any;
+        if (this.settings.modelVariant === "Whisper-Tiny") {
+          this.settings.rewriteModel = "E2B";
+        } else {
+          this.settings.rewriteModel = this.settings.modelVariant;
+        }
       }
       delete this.settings.modelVariant;
       migrated = true;

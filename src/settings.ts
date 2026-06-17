@@ -20,7 +20,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Transcription model")
-      .setDesc("Whisper-Tiny is extremely fast; E2B is balanced; E4B is more accurate.")
+      .setDesc("Whisper-tiny is extremely fast; E2B is balanced; E4B is more accurate.")
       .addDropdown((d) =>
         d
           .addOption("Whisper-Tiny", `Whisper-Tiny (${MODEL_SIZES["Whisper-Tiny"]})`)
@@ -31,6 +31,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             s.transcriptionModel = v as TranscriptionModelVariant;
             await this.plugin.saveSettings();
             await this.plugin.resetBackend();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             this.display();
           }),
       );
@@ -47,6 +48,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             s.rewriteModel = v as RewriteModelVariant;
             await this.plugin.saveSettings();
             await this.plugin.resetBackend();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             this.display();
           }),
       );
@@ -83,6 +85,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
               fill.style.width = `${Math.round((u.fraction ?? 0) * 100)}%`;
               downloadSetting.setDesc(u.label);
             });
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             this.display();
           } catch (e) {
             console.error("GemmaNotes: model load failed", e);
@@ -131,7 +134,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
         .addText((t) =>
           t
             .setValue(s.language)
-            .setPlaceholder("auto")
+            .setPlaceholder("Auto")
             .onChange(async (v) => {
               s.language = v.trim() || "auto";
               await this.plugin.saveSettings();
@@ -180,7 +183,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
       );
 
     // --- Selection Rewriting ------------------------------------------------
-    new Setting(containerEl).setName("Selection Rewriting").setHeading();
+    new Setting(containerEl).setName("Selection rewriting").setHeading();
 
     new Setting(containerEl)
       .setName("Enable selection rewrite")

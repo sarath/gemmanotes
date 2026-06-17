@@ -70,7 +70,7 @@ class SelectionRewritePluginValue {
 
     if (!this.view.hasFocus) {
       // Delay slightly to check if focus went to the tooltip itself
-      setTimeout(() => {
+      window.setTimeout(() => {
         if (!this.view.hasFocus && !this.rewritingInProgress) {
           this.removeTooltip();
         }
@@ -120,7 +120,7 @@ class SelectionRewritePluginValue {
     const rect = range.getBoundingClientRect();
 
     if (!this.tooltipEl) {
-      this.tooltipEl = document.createElement("div");
+      this.tooltipEl = activeDocument.createElement("div");
       this.tooltipEl.className = "gemmanotes-selection-tooltip";
       this.tooltipEl.textContent = "✨ Rewrite";
 
@@ -129,15 +129,15 @@ class SelectionRewritePluginValue {
         e.stopPropagation();
       });
 
-      this.tooltipEl.addEventListener("click", async (e) => {
+      this.tooltipEl.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (this.currentSelectionRange) {
-          await this.startRewrite(this.currentSelectedText, this.currentSelectionRange);
+          void this.startRewrite(this.currentSelectedText, this.currentSelectionRange);
         }
       });
 
-      document.body.appendChild(this.tooltipEl);
+      activeDocument.body.appendChild(this.tooltipEl);
     }
 
     const tooltipWidth = this.tooltipEl.offsetWidth || 80;

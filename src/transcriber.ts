@@ -22,6 +22,87 @@ if (typeof process !== "undefined" && process?.release?.name === "node") {
 import type { ModelVariant, Style, TranscriptionModelVariant, RewriteModelVariant } from "./types";
 import { MODEL_REPOS } from "./types";
 
+interface TransformersEnv {
+  allowLocalModels: boolean;
+  useBrowserCache: boolean;
+  useFSCache: boolean;
+  allowRemoteModels: boolean;
+  backends?: {
+    onnx?: {
+      wasm?: {
+        wasmPaths?: unknown;
+      };
+    };
+  };
+}
+
+interface PretrainedModelClass {
+  from_pretrained(
+    modelId: string,
+    options?: {
+      dtype?: string;
+      device?: string;
+      progress_callback?: (progress: ProgressEventData) => void;
+    }
+  ): Promise<GemmaModelInstance>;
+}
+
+interface PretrainedProcessorClass {
+  from_pretrained(
+    modelId: string,
+    options?: {
+      progress_callback?: (progress: ProgressEventData) => void;
+    }
+  ): Promise<GemmaProcessorInstance>;
+}
+
+interface GemmaModelInstance {
+  dispose?(): Promise<void>;
+  generate(options: unknown): Promise<GemmaTensor>;
+}
+
+interface GemmaProcessorInstance {
+  (prompt: string, arg2: null, audio: Float32Array | null, options: unknown): Promise<GemmaInputs>;
+  apply_chat_template(messages: unknown, options: { enable_thinking: boolean; add_generation_prompt: boolean }): string;
+  batch_decode(outputs: unknown, options: { skip_special_tokens: boolean }): string[];
+}
+
+interface GemmaInputs {
+  input_ids: GemmaTensor;
+  [key: string]: unknown;
+}
+
+interface GemmaTensor {
+  dims: number[];
+  dispose?(): void;
+  slice(arg1: null, range: [number | null, number | null]): GemmaTensor;
+}
+
+interface ProgressEventData {
+  progress?: number;
+  status?: string;
+  file?: string;
+}
+
+interface WhisperPipelineInstance {
+  (audio: Float32Array): Promise<{ text: string } | null>;
+  dispose?(): Promise<void>;
+  model?: {
+    dispose?(): Promise<void>;
+  };
+}
+
+interface PretrainedPipelineClass {
+  (
+    task: "automatic-speech-recognition",
+    repo: string,
+    options?: {
+      device?: string;
+      progress_callback?: (progress: ProgressEventData) => void;
+    }
+  ): Promise<WhisperPipelineInstance>;
+}
+
 export interface ProgressUpdate {
   /** 0..1 overall download fraction, or null when indeterminate. */
   fraction: number | null;
@@ -94,8 +175,8 @@ function throttleProgress(
 }
 
 export class GemmaBackend implements TranscriptionBackend {
-  private model: any = null;
-  private processor: any = null;
+  private model: GemmaModelInstance | null = null;
+  private processor: GemmaProcessorInstance | null = null;
   readonly variant: ModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
@@ -116,8 +197,12 @@ export class GemmaBackend implements TranscriptionBackend {
     const throttledProgress = throttleProgress(onProgress, 300);
 
     // transformers.js is bundled; ONNX runtime assets resolve from the CDN.
-    const tfjs = await import("@huggingface/transformers");
-    const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs as any;
+    const tfjs = (await import("@huggingface/transformers")) as unknown as {
+      AutoProcessor: PretrainedProcessorClass;
+      Gemma4ForConditionalGeneration: PretrainedModelClass;
+      env: TransformersEnv;
+    };
+    const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs;
 
     // Cache model files in the browser Cache API so subsequent loads are offline.
     env.allowLocalModels = true;
@@ -126,17 +211,17 @@ export class GemmaBackend implements TranscriptionBackend {
     env.allowRemoteModels = allowRemote;
 
     // --- diagnostic: confirm ORT-Web wired up by the alias ---
-    console.log("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
-    console.log("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
-    console.log("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
+    console.debug("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
+    console.debug("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
+    console.debug("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
 
     const repo = MODEL_REPOS[this.variant];
     const seen = new Map<string, number>();
-    const progress_callback = (p: any) => {
+    const progress_callback = (p: ProgressEventData) => {
       // transformers.js emits per-file "progress" events and may also emit an
       // aggregate "progress_total"; handle whichever arrives.
       if (typeof p?.progress === "number" && p.status !== "done") {
-        seen.set(p.file ?? p.status, p.progress);
+        seen.set(p.file ?? p.status ?? "model", p.progress);
         const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
         throttledProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
       } else if (p?.status === "ready" || p?.status === "done") {
@@ -203,7 +288,7 @@ export class GemmaBackend implements TranscriptionBackend {
    * string, then the processor tokenizes it together with any media.
    */
   private async generate(messages: unknown, audio?: Float32Array): Promise<string> {
-    if (!this.ready) throw new Error("Model is not loaded.");
+    if (!this.ready || !this.processor || !this.model) throw new Error("Model is not loaded.");
 
     const prompt = this.processor.apply_chat_template(messages, {
       enable_thinking: false,
@@ -221,7 +306,7 @@ export class GemmaBackend implements TranscriptionBackend {
       do_sample: false,
     });
 
-    const slicedOutputs = outputs.slice(null, [inputs.input_ids.dims.at(-1), null]);
+    const slicedOutputs = outputs.slice(null, [inputs.input_ids.dims.at(-1) ?? null, null]);
     const decoded: string[] = this.processor.batch_decode(
       slicedOutputs,
       { skip_special_tokens: true },
@@ -230,8 +315,8 @@ export class GemmaBackend implements TranscriptionBackend {
     // Dispose of intermediate tensors to prevent GPU/VRAM memory accumulation
     if (inputs) {
       for (const value of Object.values(inputs)) {
-        if (value && typeof (value as any).dispose === "function") {
-          (value as any).dispose();
+        if (value && typeof (value as GemmaTensor).dispose === "function") {
+          (value as GemmaTensor).dispose!();
         }
       }
     }
@@ -248,7 +333,7 @@ export class GemmaBackend implements TranscriptionBackend {
 
 export class WhisperBackend implements TranscriptionBackend {
   readonly variant: TranscriptionModelVariant = "Whisper-Tiny";
-  private pipeline: any = null;
+  private pipeline: WhisperPipelineInstance | null = null;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
 
@@ -266,8 +351,11 @@ export class WhisperBackend implements TranscriptionBackend {
 
     const throttledProgress = throttleProgress(onProgress, 300);
 
-    const tfjs = await import("@huggingface/transformers");
-    const { pipeline, env } = tfjs as any;
+    const tfjs = (await import("@huggingface/transformers")) as unknown as {
+      pipeline: PretrainedPipelineClass;
+      env: TransformersEnv;
+    };
+    const { pipeline, env } = tfjs;
 
     // Cache model files in the browser Cache API so subsequent loads are offline.
     env.allowLocalModels = true;
@@ -277,9 +365,9 @@ export class WhisperBackend implements TranscriptionBackend {
 
     const repo = MODEL_REPOS["Whisper-Tiny"];
     const seen = new Map<string, number>();
-    const progress_callback = (p: any) => {
+    const progress_callback = (p: ProgressEventData) => {
       if (typeof p?.progress === "number" && p.status !== "done") {
-        seen.set(p.file ?? p.status, p.progress);
+        seen.set(p.file ?? p.status ?? "model", p.progress);
         const avg = [...seen.values()].reduce((a, b) => a + b, 0) / seen.size;
         throttledProgress({ fraction: avg / 100, label: `Downloading ${p.file ?? "model"}` });
       } else if (p?.status === "ready" || p?.status === "done") {
@@ -306,7 +394,7 @@ export class WhisperBackend implements TranscriptionBackend {
   }
 
   async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
-    if (!this.ready) throw new Error("Whisper model is not loaded.");
+    if (!this.ready || !this.pipeline) throw new Error("Whisper model is not loaded.");
 
     const result = await this.pipeline(audio);
 

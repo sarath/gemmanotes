@@ -126,9 +126,9 @@ export class GemmaBackend implements TranscriptionBackend {
     env.allowRemoteModels = allowRemote;
 
     // --- diagnostic: confirm ORT-Web wired up by the alias ---
-    console.log("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
-    console.log("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
-    console.log("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
+    console.debug("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
+    console.debug("[gn] env.backends.onnx.wasm:", env.backends?.onnx?.wasm);
+    console.debug("[gn] wasmPaths:", env.backends?.onnx?.wasm?.wasmPaths);
 
     const repo = MODEL_REPOS[this.variant];
     const seen = new Map<string, number>();

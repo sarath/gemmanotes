@@ -28,7 +28,7 @@ class PlaceholderWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const span = document.createElement("span");
+    const span = activeDocument.createElement("span");
     span.className = this.isRecording
       ? "gemmanotes-badge-emoji gemmanotes-recording-emoji"
       : "gemmanotes-badge-emoji gemmanotes-transcribing-emoji";
@@ -36,7 +36,6 @@ class PlaceholderWidget extends WidgetType {
 
     if (this.isRecording) {
       span.title = `Click to stop recording (gn-${this.jobId})`;
-      span.style.cursor = "pointer";
       span.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -44,11 +43,8 @@ class PlaceholderWidget extends WidgetType {
       });
     } else {
       span.title = `Transcribing (gn-${this.jobId})`;
-      span.style.cursor = "default";
     }
 
-    span.style.margin = "0 4px";
-    span.style.display = "inline-block";
     return span;
   }
 
@@ -70,18 +66,16 @@ class RewriteWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const span = document.createElement("span");
+    const span = activeDocument.createElement("span");
 
     if (this.rewritingState) {
       span.className = "gemmanotes-badge-emoji gemmanotes-transcribing-emoji";
       span.textContent = "⏳";
       span.title = "Rewriting…";
-      span.style.cursor = "default";
     } else {
       span.className = "gemmanotes-rewrite-magic-emoji";
       span.textContent = "✨";
       span.title = "Rewrite last note";
-      span.style.cursor = "pointer";
       span.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -89,8 +83,6 @@ class RewriteWidget extends WidgetType {
       });
     }
 
-    span.style.marginLeft = "4px";
-    span.style.display = "inline-block";
     return span;
   }
 

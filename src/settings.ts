@@ -180,7 +180,7 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
       );
 
     // --- Selection Rewriting ------------------------------------------------
-    new Setting(containerEl).setName("Selection Rewriting").setHeading();
+    new Setting(containerEl).setName("Selection rewriting").setHeading();
 
     new Setting(containerEl)
       .setName("Enable selection rewrite")

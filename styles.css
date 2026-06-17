@@ -48,12 +48,15 @@
   vertical-align: middle;
   user-select: none;
   transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.15s ease;
+  margin: 0 4px;
+  display: inline-block;
 }
 
 /* Pulsing Red/Coral for Recording Emoji */
 .gemmanotes-recording-emoji {
   animation: gemmanotes-emoji-pulse-mic 1s infinite alternate ease-in-out;
   filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.6));
+  cursor: pointer;
 }
 
 .gemmanotes-recording-emoji:hover {
@@ -78,6 +81,7 @@
   animation: gemmanotes-emoji-spin-hourglass 2s infinite linear;
   filter: drop-shadow(0 0 3px rgba(129, 140, 248, 0.6));
   display: inline-block;
+  cursor: default;
 }
 
 @keyframes gemmanotes-emoji-spin-hourglass {
@@ -98,6 +102,9 @@
 /* Magic Rewrite Emoji Styling */
 .gemmanotes-rewrite-magic-emoji {
   transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.15s ease;
+  cursor: pointer;
+  margin-left: 4px;
+  display: inline-block;
 }
 
 .gemmanotes-rewrite-magic-emoji:hover {

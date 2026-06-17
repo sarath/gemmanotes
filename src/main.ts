@@ -325,7 +325,7 @@ export default class GemmaNotesPlugin extends Plugin {
 
       try {
         await this.loadPromise;
-        console.log("GemmaNotes: model load successful");
+        console.debug("GemmaNotes: model load successful");
         new Notice("GemmaNotes: Models loaded and ready.");
       } catch (e) {
         console.error("GemmaNotes: background model load failed", e);

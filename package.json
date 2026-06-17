@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "lint": "eslint src",
+    "build": "npm run lint && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "local:deploy": "node scripts/deploy_and_reload.js",
     "local:test-load": "node scripts/test_model_load.js"
   },
@@ -23,8 +24,12 @@
     "@codemirror/view": "6.38.6",
     "@types/node": "^22.19.21",
     "esbuild": "^0.28.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.3.0",
+    "globals": "^17.6.0",
     "obsidian": "latest",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.61.1"
   },
   "overrides": {
     "global-agent": "^4.1.3"

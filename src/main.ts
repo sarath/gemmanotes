@@ -182,7 +182,7 @@ export default class GemmaNotesPlugin extends Plugin {
       this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
       ".cache"
     );
-    this.loadPromise = null;
+    // WATCHDOG: Removed unreachable `this.loadPromise = null;` after the return statement.
   }
 
   /** Download + load the selected model, reporting progress to the caller. */
@@ -234,7 +234,8 @@ export default class GemmaNotesPlugin extends Plugin {
     this.clearHint();
     this.ribbonEl.addClass("is-active");
 
-    const jobId = Math.random().toString(36).slice(2, 8);
+    // WATCHDOG: Replaced Math.random with crypto.randomUUID for stronger randomness
+    const jobId = crypto.randomUUID().split("-")[0];
     this.activeJobId = jobId;
     this.activeJobFilePath = file.path;
 

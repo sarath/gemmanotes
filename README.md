@@ -2,21 +2,12 @@
 
 Push-to-talk voice notes for Obsidian, transcribed **entirely on-device** with
 Google's Gemma 4 (E2B / E4B) running in-process via transformers.js. No server,
-no API key — fully offline after a one-time model download.
+no API key — fully offline after a one-time model download. 
 
 🚀 Install here: 
 https://community.obsidian.md/plugins/gemmanotes
 
-Built with Love and Antigravity CLI, Gemini 3.5 Flash
-
-```
-      ▄▀▀▄        Antigravity CLI 1.0.2
-     ▀▀▀▀▀▀       xxxxxxxxxxxxxxxxxxxxx
-    ▀▀▀▀▀▀▀▀      Gemini 3.5 Flash (High)
-   ▄▀▀    ▀▀▄     ~/gemmanotes
-  ▄▀▀      ▀▀▄
-```
-
+✨ New: Magic rewrite is available for any selected text. Use local Gemma 4 model to  rephrase any text!
 
 ## How it works
 
@@ -27,70 +18,36 @@ Built with Love and Antigravity CLI, Gemini 3.5 Flash
    Gemma 4. Transcriptions run through a FIFO queue, so you can start the next
    recording while one is still processing.
 4. The placeholder is swapped for the transcribed text.
-5. A status-bar hint offers a one-click **rewrite** into tidy prose.
-6. Network use: Only needed for downloading and caching models from huggingface.
+5. A status-bar hint offers a one-click **Magic Rewrite** into tidy prose.
 
-## Local Setup
+## Network Requests & WASM Disclosures
 
-Git clone:
+### Network Requests
+This plugin makes network requests solely for the purpose of a one-time download of the required transcription and rewriting models, as well as the ONNX Runtime WebAssembly execution engines. Once downloaded, all models run locally and in-process. No data or recording is ever sent to any remote server.
 
-```bash
-gh clone https://github.com/sarath/gemmanotes
-```
+The network request destinations are:
+1. **Hugging Face Model Registry (`https://huggingface.co`)**: Used to download the model weights, tokenizers, and configuration files for the selected model variants:
+   - Whisper-Tiny (`onnx-community/whisper-tiny.en`)
+   - Gemma 4 E2B (`onnx-community/gemma-4-E2B-it-ONNX`)
+   - Gemma 4 E4B (`onnx-community/gemma-4-E4B-it-ONNX`)
+2. **jsDelivr CDN (`https://cdn.jsdelivr.net`)**: Used by Hugging Face `transformers.js` to dynamically download the required ONNX Runtime WebAssembly library files.
 
-Development:
-```bash
-npm install
-npm run build      # production bundle -> main.js
-npm run dev        # watch mode
-```
+### WebAssembly (WASM) Modules
+To perform in-process inference on-device, this plugin uses the following WebAssembly binary file:
+- **`ort-wasm-simd-threaded.asyncify.wasm`** (and related `ort-wasm*.wasm` files): These are official, compiled WebAssembly modules of the Microsoft ONNX Runtime library. They are fetched from the jsDelivr CDN and are used to execute the deep learning models locally within Obsidian. They are compiled from the open-source source code hosted at the official [ONNX Runtime repository](https://github.com/microsoft/onnxruntime).
 
-Install into a vault for local testing:
+### Clipboard Access
+This plugin writes to the system clipboard:
+- **Write-Only Access**: If the user enables the optional **"Copy rewrites to clipboard"** setting in settings, the plugin will copy the successfully rewritten note text directly to the system clipboard using the standard Web API `navigator.clipboard.writeText`. The plugin never reads from the clipboard.
 
-Mac
-```bash
-git clone https://github.com/sarath/gemmanotes
-./install.sh /path/to/your/vault <feature-branch>
-```
+### Dynamic Code Execution
+- The plugin utilizes WebAssembly (`ort-wasm-simd-threaded.asyncify.wasm` from ONNX Runtime) to execute model inference in-process. WebAssembly engines may internally use dynamic code compilation (such as `new Function()`) to optimize runtime kernel performance. No dynamically generated JavaScript from external sources is ever executed.
 
-This fetches `origin`, checks out `origin/<feature-branch>` cleanly, runs
-`npm run build`, and copies `main.js`, `manifest.json`, and `styles.css`
-into `<vault>/.obsidian/plugins/gemmanotes/`. Then enable the plugin and use
-**Settings → GemmaNotes → Download** to fetch the model (~3.2 GB for E2B,
-~5 GB for E4B).
-
-## Local Testing and Development
-
-If you are developing inside Google Cloud Shell and want to deploy, test, and debug the plugin directly in a local Obsidian instance:
-
-### 1. Tunnel Remote Debugging Port
-Start your local Obsidian instance with remote debugging enabled (e.g., `obsidian --remote-debugging-port=9222`). Then, run the following command to tunnel port `9222` from your local machine to your Cloud Shell workspace:
-```bash
-gcloud cloud-shell ssh --ssh-flag="-L 9222:localhost:9222"
-```
-This allows scripts running in the Cloud Shell environment to connect to the Chrome DevTools protocol on your local Obsidian instance.
-
-### 2. Build, Deploy, and Test
-1. Compile the production bundle:
-   ```bash
-   npm run build
-   ```
-2. Deploy the files (`main.js`, `manifest.json`, `styles.css`) to the connected Obsidian instance and automatically reload the plugin:
-   ```bash
-   npm run local:deploy
-   ```
-3. Test model loading and verify initialization:
-   ```bash
-   npm run local:test-load
-   ```
 
 ## Known v1 limitations
 
 - **Fixed-window chunking** — long recordings are cut on a 25 s boundary, which
   can split a word. Silence-aware chunking is the planned next step.
-- **transformers.js Gemma 4 audio API** — the processor/model call in
-  `src/transcriber.ts` follows the documented image-text-to-text pattern; the
-  exact audio surface should be confirmed against the model card sample code.
 - **Undo granularity** — placeholder→text and rewrite swaps are written via the
   vault API; they are not always a single editor-undo step.
 - **Model cache** — stored in the browser Cache API. Persistent and offline-safe,

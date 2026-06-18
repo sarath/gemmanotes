@@ -393,7 +393,7 @@ export class WhisperBackend implements TranscriptionBackend {
     }
   }
 
-  async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
+  async transcribeChunk(audio: Float32Array, _opts: TranscribeOptions): Promise<string> {
     if (!this.ready || !this.pipeline) throw new Error("Whisper model is not loaded.");
 
     const result = await this.pipeline(audio);
@@ -401,7 +401,7 @@ export class WhisperBackend implements TranscriptionBackend {
     return result?.text?.trim() ?? "";
   }
 
-  async rewrite(text: string): Promise<string> {
+  async rewrite(_text: string): Promise<string> {
     throw new Error("Rewriting is not supported by the Whisper model. Please switch to a Gemma model in settings.");
   }
 }

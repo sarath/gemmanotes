@@ -182,7 +182,7 @@ export default class GemmaNotesPlugin extends Plugin {
       this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
       ".cache"
     );
-    this.loadPromise = null;
+    // Removed unreachable this.loadPromise = null; to eliminate dead code and improve maintainability
   }
 
   /** Download + load the selected model, reporting progress to the caller. */

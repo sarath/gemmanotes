@@ -28,6 +28,7 @@ class PlaceholderWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    // Use activeDocument instead of document to maintain multi-window (popout) compatibility.
     const span = activeDocument.createElement("span");
     span.className = this.isRecording
       ? "gemmanotes-badge-emoji gemmanotes-recording-emoji"
@@ -66,6 +67,7 @@ class RewriteWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    // Use activeDocument instead of document to maintain multi-window (popout) compatibility.
     const span = activeDocument.createElement("span");
 
     if (this.rewritingState) {

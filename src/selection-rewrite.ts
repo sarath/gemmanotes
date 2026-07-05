@@ -110,7 +110,9 @@ class SelectionRewritePluginValue {
   }
 
   showTooltip() {
-    const sel = window.getSelection();
+    // Watchdog: Use activeWindow instead of window for Obsidian multi-window support.
+    const win = activeWindow;
+    const sel = win.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
       this.removeTooltip();
       return;
@@ -148,16 +150,17 @@ class SelectionRewritePluginValue {
 
     // Viewport containment
     if (left < 10) left = 10;
-    if (left + tooltipWidth > window.innerWidth - 10) {
-      left = window.innerWidth - tooltipWidth - 10;
+    // Watchdog: Use activeWindow.innerWidth, scrollX, scrollY for Obsidian multi-window support
+    if (left + tooltipWidth > win.innerWidth - 10) {
+      left = win.innerWidth - tooltipWidth - 10;
     }
 
     if (top < 10) {
       top = rect.bottom + 8;
     }
 
-    this.tooltipEl.style.left = `${left + window.scrollX}px`;
-    this.tooltipEl.style.top = `${top + window.scrollY}px`;
+    this.tooltipEl.style.left = `${left + win.scrollX}px`;
+    this.tooltipEl.style.top = `${top + win.scrollY}px`;
   }
 
   async startRewrite(selectedText: string, range: { from: number; to: number }) {

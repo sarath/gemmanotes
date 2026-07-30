@@ -25,7 +25,8 @@ class SelectionRewritePluginValue {
   }
 
   update(update: ViewUpdate) {
-    if (update.selectionSet || update.docChanged) {
+    // Re-evaluate tooltip when focus changes, selection changes, or document changes
+    if (update.selectionSet || update.docChanged || update.focusChanged) {
       this.handleSelectionChange();
     }
   }
@@ -110,8 +111,21 @@ class SelectionRewritePluginValue {
   }
 
   showTooltip() {
-    const sel = window.getSelection();
+    // Only show/update tooltip if the current editor actually has focus
+    if (!this.view.hasFocus) {
+      this.removeTooltip();
+      return;
+    }
+
+    // Use activeWindow for popout window compatibility
+    const sel = activeWindow.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      this.removeTooltip();
+      return;
+    }
+
+    // Double check that the selection is actually inside this view's DOM
+    if (sel.anchorNode && !this.view.dom.contains(sel.anchorNode)) {
       this.removeTooltip();
       return;
     }
@@ -148,16 +162,16 @@ class SelectionRewritePluginValue {
 
     // Viewport containment
     if (left < 10) left = 10;
-    if (left + tooltipWidth > window.innerWidth - 10) {
-      left = window.innerWidth - tooltipWidth - 10;
+    if (left + tooltipWidth > activeWindow.innerWidth - 10) {
+      left = activeWindow.innerWidth - tooltipWidth - 10;
     }
 
     if (top < 10) {
       top = rect.bottom + 8;
     }
 
-    this.tooltipEl.style.left = `${left + window.scrollX}px`;
-    this.tooltipEl.style.top = `${top + window.scrollY}px`;
+    this.tooltipEl.style.left = `${left + activeWindow.scrollX}px`;
+    this.tooltipEl.style.top = `${top + activeWindow.scrollY}px`;
   }
 
   async startRewrite(selectedText: string, range: { from: number; to: number }) {

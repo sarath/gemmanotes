@@ -168,6 +168,10 @@ export default class GemmaNotesPlugin extends Plugin {
     void this.loadModelsIfDownloaded();
   }
 
+  /**
+   * Get the cache directory for the plugin. Defaults to a local .cache folder inside the plugin dir.
+   * Removed unreachable `this.loadPromise = null;` after the return statement to fix potential dead code risk.
+   */
   getCacheDir(): string {
     const adapter = this.app.vault.adapter;
     if (adapter instanceof FileSystemAdapter) {
@@ -182,7 +186,6 @@ export default class GemmaNotesPlugin extends Plugin {
       this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
       ".cache"
     );
-    this.loadPromise = null;
   }
 
   /** Download + load the selected model, reporting progress to the caller. */

@@ -131,7 +131,9 @@ export interface TranscriptionBackend {
 
 /** True when the renderer exposes a usable WebGPU adapter. */
 export async function detectWebGPU(): Promise<boolean> {
-  const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  // Using activeWindow.navigator instead of global navigator prevents
+  // NotAllowedError exceptions in popout windows where the main window lacks focus.
+  const gpu = (activeWindow.navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
   if (!gpu) return false;
   try {
     return (await gpu.requestAdapter()) != null;

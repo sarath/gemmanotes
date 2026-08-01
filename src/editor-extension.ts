@@ -152,9 +152,11 @@ class PlaceholderPluginValue {
     const currentRewriting = this.provider.isRewriting();
     const currentCandidateText = this.provider.getRewriteCandidate()?.text || null;
 
+    // Check for focusChanged as focus changes do not inherently trigger update.selectionSet or update.docChanged
     if (
       update.docChanged ||
       update.viewportChanged ||
+      update.focusChanged ||
       hasRefreshEffect ||
       this.lastRewriting !== currentRewriting ||
       this.lastCandidateText !== currentCandidateText

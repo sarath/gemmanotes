@@ -18,7 +18,9 @@ export class Recorder {
   /** Request the microphone and begin capturing. Throws if permission is denied. */
   async start(): Promise<void> {
     if (this.isRecording) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Using activeWindow.navigator instead of global navigator prevents
+    // NotAllowedError exceptions in popout windows where the main window lacks focus.
+    this.stream = await activeWindow.navigator.mediaDevices.getUserMedia({ audio: true });
     this.chunks = [];
     this.mediaRecorder = new MediaRecorder(this.stream);
     this.mediaRecorder.ondataavailable = (e) => {

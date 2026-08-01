@@ -451,7 +451,9 @@ export default class GemmaNotesPlugin extends Plugin {
       } else {
         if (this.settings.copyRewriteToClipboard) {
           try {
-            await navigator.clipboard.writeText(rewritten);
+            // Using activeWindow.navigator instead of global navigator prevents
+            // NotAllowedError exceptions in popout windows where the main window lacks focus.
+            await activeWindow.navigator.clipboard.writeText(rewritten);
             new Notice("GemmaNotes: rewritten text copied to clipboard.");
           } catch (clipErr) {
             console.error("GemmaNotes: failed to copy rewrite to clipboard", clipErr);

@@ -1,7 +1,7 @@
 {
   "id": "gemmanotes",
   "name": "GemmaNotes",
-  "version": "0.1.10",
+  "version": "0.1.10-pr.41",
   "minAppVersion": "1.5.7",
   "description": "Push-to-talk voice notes transcribed on-device with Gemma 4.",
   "author": "Sarath Chandra",

@@ -194,7 +194,8 @@ class SelectionRewritePluginValue {
       // Copy to clipboard if enabled in settings
       if (this.provider.shouldCopyRewriteToClipboard()) {
         try {
-          await navigator.clipboard.writeText(rewritten);
+          // Use activeWindow.navigator for popout window compatibility
+          await activeWindow.navigator.clipboard.writeText(rewritten);
           this.provider.showNotice("GemmaNotes: rewritten text copied to clipboard.");
         } catch (clipErr) {
           console.error("GemmaNotes: failed to copy rewrite to clipboard", clipErr);

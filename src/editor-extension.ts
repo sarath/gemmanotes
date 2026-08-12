@@ -155,6 +155,7 @@ class PlaceholderPluginValue {
     if (
       update.docChanged ||
       update.viewportChanged ||
+      update.focusChanged || // Fix: explicitly check for focus changes
       hasRefreshEffect ||
       this.lastRewriting !== currentRewriting ||
       this.lastCandidateText !== currentCandidateText

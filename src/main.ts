@@ -451,7 +451,8 @@ export default class GemmaNotesPlugin extends Plugin {
       } else {
         if (this.settings.copyRewriteToClipboard) {
           try {
-            await navigator.clipboard.writeText(rewritten);
+            // Fix: Use activeWindow.navigator instead of navigator to ensure compatibility with Obsidian popout windows
+            await activeWindow.navigator.clipboard.writeText(rewritten);
             new Notice("GemmaNotes: rewritten text copied to clipboard.");
           } catch (clipErr) {
             console.error("GemmaNotes: failed to copy rewrite to clipboard", clipErr);

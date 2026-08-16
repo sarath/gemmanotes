@@ -18,7 +18,8 @@ export class Recorder {
   /** Request the microphone and begin capturing. Throws if permission is denied. */
   async start(): Promise<void> {
     if (this.isRecording) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Fix: Use activeWindow.navigator instead of navigator to ensure compatibility with Obsidian popout windows
+    this.stream = await activeWindow.navigator.mediaDevices.getUserMedia({ audio: true });
     this.chunks = [];
     this.mediaRecorder = new MediaRecorder(this.stream);
     this.mediaRecorder.ondataavailable = (e) => {

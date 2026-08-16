@@ -194,7 +194,8 @@ class SelectionRewritePluginValue {
       // Copy to clipboard if enabled in settings
       if (this.provider.shouldCopyRewriteToClipboard()) {
         try {
-          await navigator.clipboard.writeText(rewritten);
+          // Fix: Use activeWindow.navigator instead of navigator to ensure compatibility with Obsidian popout windows
+          await activeWindow.navigator.clipboard.writeText(rewritten);
           this.provider.showNotice("GemmaNotes: rewritten text copied to clipboard.");
         } catch (clipErr) {
           console.error("GemmaNotes: failed to copy rewrite to clipboard", clipErr);

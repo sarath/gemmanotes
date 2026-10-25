@@ -36,6 +36,7 @@ export default tseslint.config(
       "main.js",
       "versions.json",
       "scripts/**",
+      "tests/**",
     ]
   }
 );

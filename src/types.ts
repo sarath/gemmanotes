@@ -19,6 +19,8 @@ export interface GemmaNotesSettings {
   rewriteModel: RewriteModelVariant;
   /** Set true for each model that has finished downloading at least once. */
   downloadedModels: Record<string, boolean>;
+  /** Optional external folder path used to store and load model files outside the vault. */
+  modelFolder: string;
 
   /** Where transcribed text is inserted. */
   placement: Placement;
@@ -46,6 +48,7 @@ export const DEFAULT_SETTINGS: GemmaNotesSettings = {
     E4B: false,
     "Whisper-Tiny": false,
   },
+  modelFolder: "",
   placement: "cursor",
   headingName: "Voice Ramblings",
   style: "cleaned",

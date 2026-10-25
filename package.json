@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "lint": "eslint src",
+    "test": "node scripts/run-tests.mjs",
     "build": "npm run lint && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "local:deploy": "node scripts/deploy_and_reload.js",
     "local:test-load": "node scripts/test_model_load.js"

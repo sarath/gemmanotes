@@ -21,20 +21,26 @@ if (typeof process !== "undefined" && process?.release?.name === "node") {
 
 import type { ModelVariant, Style, TranscriptionModelVariant, RewriteModelVariant } from "./types";
 import { MODEL_REPOS } from "./types";
+import {
+  configureTransformersEnv,
+  createFileResponse,
+  createLocalAwareFetch,
+  ExternalModelCache,
+  isModelCached,
+  resolveModelFolder,
+} from "./model-storage";
+import type { ConfigurableTransformersEnv } from "./model-storage";
 
-interface TransformersEnv {
-  allowLocalModels: boolean;
-  useBrowserCache: boolean;
-  useFSCache: boolean;
-  allowRemoteModels: boolean;
-  backends?: {
-    onnx?: {
-      wasm?: {
-        wasmPaths?: unknown;
-      };
-    };
-  };
-}
+export {
+  configureTransformersEnv,
+  createFileResponse,
+  createLocalAwareFetch,
+  ExternalModelCache,
+  isModelCached,
+  resolveModelFolder,
+};
+
+type TransformersEnv = ConfigurableTransformersEnv;
 
 interface PretrainedModelClass {
   from_pretrained(
@@ -42,6 +48,8 @@ interface PretrainedModelClass {
     options?: {
       dtype?: string;
       device?: string;
+      cache_dir?: string;
+      local_files_only?: boolean;
       progress_callback?: (progress: ProgressEventData) => void;
     }
   ): Promise<GemmaModelInstance>;
@@ -51,6 +59,8 @@ interface PretrainedProcessorClass {
   from_pretrained(
     modelId: string,
     options?: {
+      cache_dir?: string;
+      local_files_only?: boolean;
       progress_callback?: (progress: ProgressEventData) => void;
     }
   ): Promise<GemmaProcessorInstance>;
@@ -98,6 +108,8 @@ interface PretrainedPipelineClass {
     repo: string,
     options?: {
       device?: string;
+      cache_dir?: string;
+      local_files_only?: boolean;
       progress_callback?: (progress: ProgressEventData) => void;
     }
   ): Promise<WhisperPipelineInstance>;
@@ -179,7 +191,7 @@ export class GemmaBackend implements TranscriptionBackend {
   private processor: GemmaProcessorInstance | null = null;
   readonly variant: ModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
-  private cacheDir: string;
+  readonly cacheDir: string;
 
   constructor(variant: ModelVariant, useWebGPU: boolean, cacheDir: string) {
     this.variant = variant;
@@ -204,11 +216,9 @@ export class GemmaBackend implements TranscriptionBackend {
     };
     const { AutoProcessor, Gemma4ForConditionalGeneration, env } = tfjs;
 
-    // Cache model files in the browser Cache API so subsequent loads are offline.
-    env.allowLocalModels = true;
-    env.useBrowserCache = true;
-    env.useFSCache = false;
-    env.allowRemoteModels = allowRemote;
+    // Configure transformers.js to store and load model files from `this.cacheDir`
+    // (including external folders outside the vault).
+    configureTransformersEnv(env, this.cacheDir, allowRemote);
 
     // --- diagnostic: confirm ORT-Web wired up by the alias ---
     console.debug("[gn] env.backends.onnx keys:", Object.keys(env.backends?.onnx ?? {}));
@@ -229,10 +239,16 @@ export class GemmaBackend implements TranscriptionBackend {
       }
     };
 
-    this.processor = await AutoProcessor.from_pretrained(repo, { progress_callback });
+    this.processor = await AutoProcessor.from_pretrained(repo, {
+      cache_dir: this.cacheDir,
+      local_files_only: !allowRemote,
+      progress_callback,
+    });
     this.model = await Gemma4ForConditionalGeneration.from_pretrained(repo, {
       dtype: "q4f16",
       device: this.device,
+      cache_dir: this.cacheDir,
+      local_files_only: !allowRemote,
       progress_callback,
     });
     throttledProgress({ fraction: 1, label: "Model ready." });
@@ -335,7 +351,7 @@ export class WhisperBackend implements TranscriptionBackend {
   readonly variant: TranscriptionModelVariant = "Whisper-Tiny";
   private pipeline: WhisperPipelineInstance | null = null;
   private device: "webgpu" | "wasm" = "wasm";
-  private cacheDir: string;
+  readonly cacheDir: string;
 
   constructor(useWebGPU: boolean, cacheDir: string) {
     this.device = useWebGPU ? "webgpu" : "wasm";
@@ -357,11 +373,9 @@ export class WhisperBackend implements TranscriptionBackend {
     };
     const { pipeline, env } = tfjs;
 
-    // Cache model files in the browser Cache API so subsequent loads are offline.
-    env.allowLocalModels = true;
-    env.useBrowserCache = true;
-    env.useFSCache = false;
-    env.allowRemoteModels = allowRemote;
+    // Configure transformers.js to store and load model files from `this.cacheDir`
+    // (including external folders outside the vault).
+    configureTransformersEnv(env, this.cacheDir, allowRemote);
 
     const repo = MODEL_REPOS["Whisper-Tiny"];
     const seen = new Map<string, number>();
@@ -377,6 +391,8 @@ export class WhisperBackend implements TranscriptionBackend {
 
     this.pipeline = await pipeline("automatic-speech-recognition", repo, {
       device: this.device,
+      cache_dir: this.cacheDir,
+      local_files_only: !allowRemote,
       progress_callback,
     });
     throttledProgress({ fraction: 1, label: "Model ready." });
@@ -393,7 +409,7 @@ export class WhisperBackend implements TranscriptionBackend {
     }
   }
 
-  async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
+  async transcribeChunk(audio: Float32Array, _opts: TranscribeOptions): Promise<string> {
     if (!this.ready || !this.pipeline) throw new Error("Whisper model is not loaded.");
 
     const result = await this.pipeline(audio);
@@ -401,7 +417,7 @@ export class WhisperBackend implements TranscriptionBackend {
     return result?.text?.trim() ?? "";
   }
 
-  async rewrite(text: string): Promise<string> {
+  async rewrite(_text: string): Promise<string> {
     throw new Error("Rewriting is not supported by the Whisper model. Please switch to a Gemma model in settings.");
   }
 }
@@ -409,6 +425,7 @@ export class WhisperBackend implements TranscriptionBackend {
 export class DualBackend implements TranscriptionBackend {
   private txBackend: TranscriptionBackend;
   private rxBackend: TranscriptionBackend;
+  private currentCacheDir: string;
 
   constructor(
     txVariant: TranscriptionModelVariant,
@@ -416,6 +433,7 @@ export class DualBackend implements TranscriptionBackend {
     useWebGPU: boolean,
     cacheDir: string
   ) {
+    this.currentCacheDir = cacheDir;
     if (txVariant === "Whisper-Tiny") {
       this.txBackend = new WhisperBackend(useWebGPU, cacheDir);
     } else {
@@ -427,6 +445,10 @@ export class DualBackend implements TranscriptionBackend {
     } else {
       this.rxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
     }
+  }
+
+  get cacheDir(): string {
+    return this.currentCacheDir;
   }
 
   get ready(): boolean {
@@ -471,6 +493,7 @@ export class DualBackend implements TranscriptionBackend {
     useWebGPU: boolean,
     cacheDir: string
   ): Promise<void> {
+    this.currentCacheDir = cacheDir;
     const existing = new Set<TranscriptionBackend>();
     if (this.txBackend) existing.add(this.txBackend);
     if (this.rxBackend) existing.add(this.rxBackend);
@@ -478,11 +501,11 @@ export class DualBackend implements TranscriptionBackend {
     let newTxBackend: TranscriptionBackend;
     let newRxBackend: TranscriptionBackend;
 
-    // Find or create txBackend
+    // Find or create txBackend (must match both variant and cacheDir)
     const foundTx = Array.from(existing).find(
       (b) =>
-        (b instanceof GemmaBackend && b.variant === txVariant) ||
-        (b instanceof WhisperBackend && txVariant === "Whisper-Tiny")
+        (b instanceof GemmaBackend && b.variant === txVariant && b.cacheDir === cacheDir) ||
+        (b instanceof WhisperBackend && txVariant === "Whisper-Tiny" && b.cacheDir === cacheDir)
     );
     if (foundTx) {
       newTxBackend = foundTx;
@@ -493,12 +516,12 @@ export class DualBackend implements TranscriptionBackend {
           : new GemmaBackend(txVariant, useWebGPU, cacheDir);
     }
 
-    // Find or create rxBackend
+    // Find or create rxBackend (must match both variant and cacheDir)
     if ((txVariant as string) === rxVariant) {
       newRxBackend = newTxBackend;
     } else {
       const foundRx = Array.from(existing).find(
-        (b) => b instanceof GemmaBackend && b.variant === rxVariant
+        (b) => b instanceof GemmaBackend && b.variant === rxVariant && b.cacheDir === cacheDir
       );
       if (foundRx) {
         newRxBackend = foundRx;

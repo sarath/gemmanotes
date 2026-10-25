@@ -1,6 +1,7 @@
 /** Settings tab for GemmaNotes. */
 
 import { App, PluginSettingTab, Setting } from "obsidian";
+import type { ButtonComponent } from "obsidian";
 import type GemmaNotesPlugin from "./main";
 import { MODEL_SIZES } from "./types";
 import type { TranscriptionModelVariant, RewriteModelVariant, Placement, Style } from "./types";
@@ -55,28 +56,61 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           }),
       );
 
-    let desc = "";
-    const txStatus = s.downloadedModels[s.transcriptionModel] ? "Downloaded" : `Not downloaded (${MODEL_SIZES[s.transcriptionModel]})`;
-    const rxStatus = s.downloadedModels[s.rewriteModel] ? "Downloaded" : `Not downloaded (${MODEL_SIZES[s.rewriteModel]})`;
+    const buildModelFilesDesc = (): string => {
+      const txStatus = s.downloadedModels[s.transcriptionModel]
+        ? "Downloaded"
+        : `Not downloaded (${MODEL_SIZES[s.transcriptionModel]})`;
+      const rxStatus = s.downloadedModels[s.rewriteModel]
+        ? "Downloaded"
+        : `Not downloaded (${MODEL_SIZES[s.rewriteModel]})`;
 
-    if (s.transcriptionModel === s.rewriteModel) {
-      desc = `${s.transcriptionModel}: ${txStatus}.`;
-    } else {
-      desc = `Transcription (${s.transcriptionModel}): ${txStatus}. Rewriting (${s.rewriteModel}): ${rxStatus}.`;
-    }
+      if (s.transcriptionModel === s.rewriteModel) {
+        return `${s.transcriptionModel}: ${txStatus}.`;
+      }
+      return `Transcription (${s.transcriptionModel}): ${txStatus}. Rewriting (${s.rewriteModel}): ${rxStatus}.`;
+    };
+
+    let downloadButton: ButtonComponent | null = null;
+    const updateModelFilesStatus = (): void => {
+      downloadSetting.setDesc(buildModelFilesDesc());
+      const allReady =
+        Boolean(s.downloadedModels[s.transcriptionModel]) &&
+        Boolean(s.downloadedModels[s.rewriteModel]);
+      downloadButton?.setButtonText(
+        allReady ? "Re-download" : "Download missing models",
+      );
+    };
+
+    new Setting(containerEl)
+      .setName("External model folder")
+      .setDesc(
+        "Folder outside the vault used to store and load model files. " +
+          "Leave blank to use the default plugin cache folder.",
+      )
+      .addText((t) =>
+        t
+          .setValue(s.modelFolder)
+          .setPlaceholder("Default plugin cache folder")
+          .onChange(async (v) => {
+            await this.plugin.setModelFolder(v);
+            updateModelFilesStatus();
+          }),
+      );
 
     const downloadSetting = new Setting(containerEl)
       .setName("Model files")
-      .setDesc(desc);
+      .setDesc(buildModelFilesDesc());
 
     const bar = containerEl.createDiv({ cls: "gemmanotes-download-bar" });
     const fill = bar.createDiv();
     bar.hide();
 
-    const isAllDownloaded = s.downloadedModels[s.transcriptionModel] && s.downloadedModels[s.rewriteModel];
+    const isAllDownloaded =
+      s.downloadedModels[s.transcriptionModel] && s.downloadedModels[s.rewriteModel];
 
-    downloadSetting.addButton((b) =>
-      b
+    downloadSetting.addButton((b) => {
+      downloadButton = b;
+      return b
         .setButtonText(isAllDownloaded ? "Re-download" : "Download missing models")
         .setCta()
         .onClick(async () => {
@@ -94,8 +128,8 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
             b.setDisabled(false);
             bar.hide();
           }
-        }),
-    );
+        });
+    });
 
     new Setting(containerEl)
       .setName("Hardware acceleration")

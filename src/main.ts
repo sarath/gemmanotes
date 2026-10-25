@@ -1,13 +1,17 @@
 /** GemmaNotes — push-to-talk voice notes transcribed on-device with Gemma 4. */
 
 import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile } from "obsidian";
-import * as path from "path";
 import { DEFAULT_SETTINGS } from "./types";
-import type { GemmaNotesSettings, TranscriptionJob } from "./types";
+import type { GemmaNotesSettings, ModelVariant, TranscriptionJob } from "./types";
 import { GemmaNotesSettingTab } from "./settings";
 import { Recorder } from "./recorder";
 import { decodeToMono16k } from "./audio";
-import { DualBackend, detectWebGPU } from "./transcriber";
+import {
+  DualBackend,
+  detectWebGPU,
+  isModelCached,
+  resolveModelFolder,
+} from "./transcriber";
 import type { ProgressUpdate, TranscriptionBackend } from "./transcriber";
 import { TranscriptionQueue } from "./queue";
 import type { QueueState } from "./queue";
@@ -140,15 +144,18 @@ export default class GemmaNotesPlugin extends Plugin {
 
   // --- Backend lifecycle ---------------------------------------------------
 
-  /** Recreate or update the backend, e.g. after the model variant changed. */
+  /** Recreate or update the backend, e.g. after the model variant or folder changed. */
   async resetBackend(): Promise<void> {
+    this.syncDownloadedModelsWithCacheDir(false);
+    const cacheDir = this.getCacheDir();
+
     if (this.backend) {
       if (this.backend instanceof DualBackend) {
         await this.backend.updateVariants(
           this.settings.transcriptionModel,
           this.settings.rewriteModel,
           this.webGPUAvailable,
-          this.getCacheDir(),
+          cacheDir,
         );
         this.loadPromise = null;
         void this.loadModelsIfDownloaded();
@@ -161,7 +168,7 @@ export default class GemmaNotesPlugin extends Plugin {
       this.settings.transcriptionModel,
       this.settings.rewriteModel,
       this.webGPUAvailable,
-      this.getCacheDir(),
+      cacheDir,
     );
     this.loadPromise = null;
 
@@ -170,19 +177,45 @@ export default class GemmaNotesPlugin extends Plugin {
 
   getCacheDir(): string {
     const adapter = this.app.vault.adapter;
-    if (adapter instanceof FileSystemAdapter) {
-      const vaultPath = adapter.getBasePath();
-      return path.join(
-        vaultPath,
-        this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
-        ".cache"
-      );
+    const vaultPath =
+      adapter instanceof FileSystemAdapter ? adapter.getBasePath() : null;
+    const pluginDir =
+      this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`;
+    return resolveModelFolder(this.settings.modelFolder, vaultPath, pluginDir);
+  }
+
+  /**
+   * Synchronize `settings.downloadedModels` with model files present in `getCacheDir()`.
+   * When `resetMissing` is true (e.g. after switching folders), variants missing on disk
+   * are marked as not downloaded.
+   */
+  syncDownloadedModelsWithCacheDir(resetMissing = false): boolean {
+    const cacheDir = this.getCacheDir();
+    const variants: ModelVariant[] = ["E2B", "E4B", "Whisper-Tiny"];
+    let changed = false;
+
+    for (const variant of variants) {
+      const cached = isModelCached(cacheDir, variant);
+      if (cached && !this.settings.downloadedModels[variant]) {
+        this.settings.downloadedModels[variant] = true;
+        changed = true;
+      } else if (resetMissing && !cached && this.settings.downloadedModels[variant]) {
+        this.settings.downloadedModels[variant] = false;
+        changed = true;
+      }
     }
-    return path.join(
-      this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
-      ".cache"
-    );
-    this.loadPromise = null;
+
+    return changed;
+  }
+
+  /** Update the external model storage folder, sync downloaded state, and reload backend. */
+  async setModelFolder(folder: string): Promise<void> {
+    const normalized = folder.trim();
+    if (this.settings.modelFolder === normalized) return;
+    this.settings.modelFolder = normalized;
+    this.syncDownloadedModelsWithCacheDir(true);
+    await this.saveSettings();
+    await this.resetBackend();
   }
 
   /** Download + load the selected model, reporting progress to the caller. */
@@ -320,12 +353,12 @@ export default class GemmaNotesPlugin extends Plugin {
     if (txDownloaded && rxDownloaded) {
       if (this.loadPromise) return;
 
-      this.stateBar.addClass("is-transcribing");
-      this.stateBar.setText("⏳ GemmaNotes initializing… (0%)");
+      this.stateBar?.addClass("is-transcribing");
+      this.stateBar?.setText("⏳ GemmaNotes initializing… (0%)");
 
       this.loadPromise = this.backend.load((u) => {
         const pct = typeof u.fraction === "number" ? Math.round(u.fraction * 100) : 0;
-        this.stateBar.setText(`⏳ GemmaNotes initializing… (${pct}%)`);
+        this.stateBar?.setText(`⏳ GemmaNotes initializing… (${pct}%)`);
       });
 
       try {
@@ -336,11 +369,11 @@ export default class GemmaNotesPlugin extends Plugin {
         console.error("GemmaNotes: background model load failed", e);
         this.loadPromise = null;
         new Notice(`GemmaNotes: Failed to load models (${String(e)})`);
-        this.stateBar.setText("⚠️ GemmaNotes failed to load");
+        this.stateBar?.setText("⚠️ GemmaNotes failed to load");
       } finally {
-        this.stateBar.removeClass("is-transcribing");
+        this.stateBar?.removeClass("is-transcribing");
         if (this.loadPromise && !this.recorder.isRecording) {
-          this.stateBar.setText("");
+          this.stateBar?.setText("");
         }
       }
     }
@@ -518,7 +551,13 @@ export default class GemmaNotesPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     const loadedData = (await this.loadData()) as Record<string, unknown> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData, {
+      downloadedModels: Object.assign(
+        {},
+        DEFAULT_SETTINGS.downloadedModels,
+        (loadedData?.downloadedModels as Record<string, boolean> | undefined) ?? {},
+      ),
+    });
 
     let migrated = false;
     // Migration logic for old settings format
@@ -542,6 +581,10 @@ export default class GemmaNotesPlugin extends Plugin {
         this.settings.downloadedModels[variant] = true;
       }
       delete this.settings.modelDownloaded;
+      migrated = true;
+    }
+
+    if (this.syncDownloadedModelsWithCacheDir(false)) {
       migrated = true;
     }
 

@@ -2,8 +2,14 @@
 
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type GemmaNotesPlugin from "./main";
-import { MODEL_SIZES } from "./types";
-import type { TranscriptionModelVariant, RewriteModelVariant, Placement, Style } from "./types";
+import { isOllamaModel, MODEL_SIZES, OLLAMA_MODELS } from "./types";
+import type {
+  ModelVariant,
+  Placement,
+  RewriteModelVariant,
+  Style,
+  TranscriptionModelVariant,
+} from "./types";
 
 interface Displayable {
   display(): void;
@@ -24,12 +30,16 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Transcription model")
-      .setDesc("Whisper-tiny is extremely fast; E2B is balanced; E4B is more accurate.")
+      .setDesc(
+        "Whisper-tiny is extremely fast; E2B is balanced; E4B is more accurate. Ollama options use your local Ollama server.",
+      )
       .addDropdown((d) =>
         d
           .addOption("Whisper-Tiny", `Whisper-Tiny (${MODEL_SIZES["Whisper-Tiny"]})`)
           .addOption("E2B", `Gemma 4 E2B (${MODEL_SIZES.E2B})`)
           .addOption("E4B", `Gemma 4 E4B (${MODEL_SIZES.E4B})`)
+          .addOption("Ollama-E2B", `Gemma 4 E2B (Ollama - ${OLLAMA_MODELS["Ollama-E2B"]})`)
+          .addOption("Ollama-E4B", `Gemma 4 E4B (Ollama - ${OLLAMA_MODELS["Ollama-E4B"]})`)
           .setValue(s.transcriptionModel)
           .onChange(async (v) => {
             s.transcriptionModel = v as TranscriptionModelVariant;
@@ -46,6 +56,8 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
         d
           .addOption("E2B", `Gemma 4 E2B (${MODEL_SIZES.E2B})`)
           .addOption("E4B", `Gemma 4 E4B (${MODEL_SIZES.E4B})`)
+          .addOption("Ollama-E2B", `Gemma 4 E2B (Ollama - ${OLLAMA_MODELS["Ollama-E2B"]})`)
+          .addOption("Ollama-E4B", `Gemma 4 E4B (Ollama - ${OLLAMA_MODELS["Ollama-E4B"]})`)
           .setValue(s.rewriteModel)
           .onChange(async (v) => {
             s.rewriteModel = v as RewriteModelVariant;
@@ -55,10 +67,38 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
           }),
       );
 
-    let desc = "";
-    const txStatus = s.downloadedModels[s.transcriptionModel] ? "Downloaded" : `Not downloaded (${MODEL_SIZES[s.transcriptionModel]})`;
-    const rxStatus = s.downloadedModels[s.rewriteModel] ? "Downloaded" : `Not downloaded (${MODEL_SIZES[s.rewriteModel]})`;
+    const txIsOllama = isOllamaModel(s.transcriptionModel);
+    const rxIsOllama = isOllamaModel(s.rewriteModel);
 
+    if (txIsOllama || rxIsOllama) {
+      new Setting(containerEl)
+        .setName("Ollama server URL")
+        .setDesc("Base URL of your running Ollama instance.")
+        .addText((t) =>
+          t
+            .setValue(s.ollamaUrl)
+            .setPlaceholder("http://localhost:11434")
+            .onChange(async (v) => {
+              s.ollamaUrl = v.trim() || "http://localhost:11434";
+              await this.plugin.saveSettings();
+              await this.plugin.resetBackend();
+            }),
+        );
+    }
+
+    const formatStatus = (variant: ModelVariant): string => {
+      if (isOllamaModel(variant)) {
+        return `Served by Ollama (${OLLAMA_MODELS[variant]})`;
+      }
+      return s.downloadedModels[variant]
+        ? "Downloaded"
+        : `Not downloaded (${MODEL_SIZES[variant]})`;
+    };
+
+    const txStatus = formatStatus(s.transcriptionModel);
+    const rxStatus = formatStatus(s.rewriteModel);
+
+    let desc = "";
     if (s.transcriptionModel === s.rewriteModel) {
       desc = `${s.transcriptionModel}: ${txStatus}.`;
     } else {
@@ -69,42 +109,46 @@ export class GemmaNotesSettingTab extends PluginSettingTab {
       .setName("Model files")
       .setDesc(desc);
 
-    const bar = containerEl.createDiv({ cls: "gemmanotes-download-bar" });
-    const fill = bar.createDiv();
-    bar.hide();
+    if (!txIsOllama || !rxIsOllama) {
+      const bar = containerEl.createDiv({ cls: "gemmanotes-download-bar" });
+      const fill = bar.createDiv();
+      bar.hide();
 
-    const isAllDownloaded = s.downloadedModels[s.transcriptionModel] && s.downloadedModels[s.rewriteModel];
+      const txReady = txIsOllama || Boolean(s.downloadedModels[s.transcriptionModel]);
+      const rxReady = rxIsOllama || Boolean(s.downloadedModels[s.rewriteModel]);
+      const isAllDownloaded = txReady && rxReady;
 
-    downloadSetting.addButton((b) =>
-      b
-        .setButtonText(isAllDownloaded ? "Re-download" : "Download missing models")
-        .setCta()
-        .onClick(async () => {
-          b.setDisabled(true);
-          bar.show();
-          try {
-            await this.plugin.downloadModel((u) => {
-              fill.style.width = `${Math.round((u.fraction ?? 0) * 100)}%`;
-              downloadSetting.setDesc(u.label);
-            });
-            (this as unknown as Displayable).display();
-          } catch (e) {
-            console.error("GemmaNotes: model load failed", e);
-            downloadSetting.setDesc(`Download failed: ${String(e)}`);
-            b.setDisabled(false);
-            bar.hide();
-          }
-        }),
-    );
-
-    new Setting(containerEl)
-      .setName("Hardware acceleration")
-      .setDesc(
-        this.plugin.webGPUAvailable
-          ? "WebGPU is available — transcription runs at full speed."
-          : "WebGPU is unavailable — transcription falls back to CPU and will " +
-              "be slow.",
+      downloadSetting.addButton((b) =>
+        b
+          .setButtonText(isAllDownloaded ? "Re-download" : "Download missing models")
+          .setCta()
+          .onClick(async () => {
+            b.setDisabled(true);
+            bar.show();
+            try {
+              await this.plugin.downloadModel((u) => {
+                fill.style.width = `${Math.round((u.fraction ?? 0) * 100)}%`;
+                downloadSetting.setDesc(u.label);
+              });
+              (this as unknown as Displayable).display();
+            } catch (e) {
+              console.error("GemmaNotes: model load failed", e);
+              downloadSetting.setDesc(`Download failed: ${String(e)}`);
+              b.setDisabled(false);
+              bar.hide();
+            }
+          }),
       );
+
+      new Setting(containerEl)
+        .setName("Hardware acceleration")
+        .setDesc(
+          this.plugin.webGPUAvailable
+            ? "WebGPU is available — transcription runs at full speed."
+            : "WebGPU is unavailable — transcription falls back to CPU and will " +
+                "be slow.",
+        );
+    }
 
     // --- Transcription -----------------------------------------------------
     new Setting(containerEl).setName("Transcription").setHeading();

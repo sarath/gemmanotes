@@ -3,7 +3,8 @@
  *
  * The backend is kept behind an interface so a remote endpoint could be added
  * later without touching the rest of the plugin. `GemmaBackend` is the default
- * in-process implementation using transformers.js + Gemma 4 ONNX.
+ * in-process implementation using transformers.js + Gemma 4 ONNX, and
+ * `OllamaBackend` connects to a local Ollama server.
  */
 
 // Electron renderer presents a global `process` object with process.release.name === 'node'.
@@ -19,8 +20,17 @@ if (typeof process !== "undefined" && process?.release?.name === "node") {
   });
 }
 
-import type { ModelVariant, Style, TranscriptionModelVariant, RewriteModelVariant } from "./types";
-import { MODEL_REPOS } from "./types";
+import { requestUrl } from "obsidian";
+import { encodeWavBase64 } from "./audio";
+import type {
+  LocalModelVariant,
+  ModelVariant,
+  OllamaModelVariant,
+  RewriteModelVariant,
+  Style,
+  TranscriptionModelVariant,
+} from "./types";
+import { isOllamaModel, MODEL_REPOS, OLLAMA_MODELS } from "./types";
 
 interface TransformersEnv {
   allowLocalModels: boolean;
@@ -140,6 +150,30 @@ export async function detectWebGPU(): Promise<boolean> {
   }
 }
 
+function buildTranscribePrompt(opts: TranscribeOptions): string {
+  const lang =
+    opts.language === "auto" ? "" : ` The audio is spoken in ${opts.language}.`;
+  const instruction =
+    opts.style === "verbatim"
+      ? "Transcribe the following audio exactly as spoken, including filler " +
+        "words and false starts."
+      : "Transcribe the following audio. Remove filler words such as 'um' " +
+        "and 'uh', and add natural punctuation and capitalization, but do " +
+        "not rephrase or change the wording.";
+  return `${instruction}${lang} Output only the transcription with no preamble.`;
+}
+
+function buildRewritePrompt(text: string): string {
+  return (
+    "Rewrite the following note into clear, well-structured prose. " +
+    "Preserve all meaning; fix grammar and flow. Output only the " +
+    `rewritten text with no preamble.\n\n${text}`
+  );
+}
+
+function normalizeOllamaUrl(url: string): string {
+  return (url.trim() || "http://localhost:11434").replace(/\/+$/, "");
+}
 
 /**
  * Wraps a progress callback to throttle updates during high-frequency download events.
@@ -177,11 +211,11 @@ function throttleProgress(
 export class GemmaBackend implements TranscriptionBackend {
   private model: GemmaModelInstance | null = null;
   private processor: GemmaProcessorInstance | null = null;
-  readonly variant: ModelVariant;
+  readonly variant: LocalModelVariant;
   private device: "webgpu" | "wasm" = "wasm";
   private cacheDir: string;
 
-  constructor(variant: ModelVariant, useWebGPU: boolean, cacheDir: string) {
+  constructor(variant: LocalModelVariant, useWebGPU: boolean, cacheDir: string) {
     this.variant = variant;
     this.device = useWebGPU ? "webgpu" : "wasm";
     this.cacheDir = cacheDir;
@@ -247,17 +281,7 @@ export class GemmaBackend implements TranscriptionBackend {
   }
 
   async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
-    const lang =
-      opts.language === "auto" ? "" : ` The audio is spoken in ${opts.language}.`;
-    const instruction =
-      opts.style === "verbatim"
-        ? "Transcribe the following audio exactly as spoken, including filler " +
-          "words and false starts."
-        : "Transcribe the following audio. Remove filler words such as 'um' " +
-          "and 'uh', and add natural punctuation and capitalization, but do " +
-          "not rephrase or change the wording.";
-    const prompt = `${instruction}${lang} Output only the transcription with no preamble.`;
-
+    const prompt = buildTranscribePrompt(opts);
     const messages = [
       { role: "user", content: [{ type: "audio" }, { type: "text", text: prompt }] },
     ];
@@ -271,10 +295,7 @@ export class GemmaBackend implements TranscriptionBackend {
         content: [
           {
             type: "text",
-            text:
-              "Rewrite the following note into clear, well-structured prose. " +
-              "Preserve all meaning; fix grammar and flow. Output only the " +
-              `rewritten text with no preamble.\n\n${text}`,
+            text: buildRewritePrompt(text),
           },
         ],
       },
@@ -393,7 +414,7 @@ export class WhisperBackend implements TranscriptionBackend {
     }
   }
 
-  async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
+  async transcribeChunk(audio: Float32Array, _opts: TranscribeOptions): Promise<string> {
     if (!this.ready || !this.pipeline) throw new Error("Whisper model is not loaded.");
 
     const result = await this.pipeline(audio);
@@ -401,9 +422,121 @@ export class WhisperBackend implements TranscriptionBackend {
     return result?.text?.trim() ?? "";
   }
 
-  async rewrite(text: string): Promise<string> {
+  async rewrite(_text: string): Promise<string> {
     throw new Error("Rewriting is not supported by the Whisper model. Please switch to a Gemma model in settings.");
   }
+}
+
+export class OllamaBackend implements TranscriptionBackend {
+  readonly variant: OllamaModelVariant;
+  readonly baseUrl: string;
+  readonly modelTag: string;
+
+  constructor(variant: OllamaModelVariant, baseUrl: string) {
+    this.variant = variant;
+    this.baseUrl = normalizeOllamaUrl(baseUrl);
+    this.modelTag = OLLAMA_MODELS[variant];
+  }
+
+  get ready(): boolean {
+    return true;
+  }
+
+  async load(onProgress: (u: ProgressUpdate) => void): Promise<void> {
+    onProgress({ fraction: 1, label: "Ollama ready." });
+  }
+
+  async unload(): Promise<void> {
+    // External server; nothing to dispose in-process.
+  }
+
+  async transcribeChunk(audio: Float32Array, opts: TranscribeOptions): Promise<string> {
+    const prompt = buildTranscribePrompt(opts);
+    const wavBase64 = encodeWavBase64(audio);
+    return this.generate(prompt, [wavBase64]);
+  }
+
+  async rewrite(text: string): Promise<string> {
+    return this.generate(buildRewritePrompt(text));
+  }
+
+  private async generate(prompt: string, images?: string[]): Promise<string> {
+    const body: Record<string, unknown> = {
+      model: this.modelTag,
+      prompt,
+      stream: false,
+      think: false,
+      options: {
+        temperature: 0,
+      },
+    };
+    if (images && images.length > 0) {
+      body.images = images;
+    }
+
+    let response;
+    try {
+      response = await requestUrl({
+        url: `${this.baseUrl}/api/generate`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        throw: false,
+      });
+    } catch (e) {
+      throw new Error(
+        `Could not connect to Ollama at ${this.baseUrl} (${String(e)}). Ensure Ollama is running.`,
+      );
+    }
+
+    if (response.status >= 400) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const data = response.json as { error?: string };
+        if (data?.error) detail = data.error;
+      } catch {
+        if (response.text) detail = response.text;
+      }
+      throw new Error(`Ollama error (${this.modelTag}): ${detail}`);
+    }
+
+    const data = response.json as { response?: string };
+    const raw = data?.response ?? "";
+    return raw.replace(/^<think>[\s\S]*?<\/think>\s*/i, "").trim();
+  }
+}
+
+function createSingleBackend(
+  variant: ModelVariant,
+  useWebGPU: boolean,
+  cacheDir: string,
+  ollamaUrl: string,
+): TranscriptionBackend {
+  if (isOllamaModel(variant)) {
+    return new OllamaBackend(variant, ollamaUrl);
+  }
+  if (variant === "Whisper-Tiny") {
+    return new WhisperBackend(useWebGPU, cacheDir);
+  }
+  return new GemmaBackend(variant, useWebGPU, cacheDir);
+}
+
+function matchesBackend(
+  b: TranscriptionBackend,
+  variant: ModelVariant,
+  ollamaUrl: string,
+): boolean {
+  if (isOllamaModel(variant)) {
+    return (
+      b instanceof OllamaBackend &&
+      b.variant === variant &&
+      b.baseUrl === normalizeOllamaUrl(ollamaUrl)
+    );
+  }
+  if (variant === "Whisper-Tiny") {
+    return b instanceof WhisperBackend;
+  }
+  return b instanceof GemmaBackend && b.variant === variant;
 }
 
 export class DualBackend implements TranscriptionBackend {
@@ -414,18 +547,15 @@ export class DualBackend implements TranscriptionBackend {
     txVariant: TranscriptionModelVariant,
     rxVariant: RewriteModelVariant,
     useWebGPU: boolean,
-    cacheDir: string
+    cacheDir: string,
+    ollamaUrl = "http://localhost:11434",
   ) {
-    if (txVariant === "Whisper-Tiny") {
-      this.txBackend = new WhisperBackend(useWebGPU, cacheDir);
-    } else {
-      this.txBackend = new GemmaBackend(txVariant, useWebGPU, cacheDir);
-    }
+    this.txBackend = createSingleBackend(txVariant, useWebGPU, cacheDir, ollamaUrl);
 
     if ((txVariant as string) === rxVariant) {
       this.rxBackend = this.txBackend;
     } else {
-      this.rxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
+      this.rxBackend = createSingleBackend(rxVariant, useWebGPU, cacheDir, ollamaUrl);
     }
   }
 
@@ -434,8 +564,13 @@ export class DualBackend implements TranscriptionBackend {
   }
 
   async load(onProgress: (u: ProgressUpdate) => void, allowRemote = true): Promise<void> {
-    if (this.txBackend === this.rxBackend) {
+    const txIsOllama = this.txBackend instanceof OllamaBackend;
+    const rxIsOllama = this.rxBackend instanceof OllamaBackend;
+
+    if (this.txBackend === this.rxBackend || rxIsOllama) {
       await this.txBackend.load(onProgress, allowRemote);
+    } else if (txIsOllama) {
+      await this.rxBackend.load(onProgress, allowRemote);
     } else {
       onProgress({ fraction: 0.0, label: "Loading transcription model..." });
       await this.txBackend.load((u) => {
@@ -469,7 +604,8 @@ export class DualBackend implements TranscriptionBackend {
     txVariant: TranscriptionModelVariant,
     rxVariant: RewriteModelVariant,
     useWebGPU: boolean,
-    cacheDir: string
+    cacheDir: string,
+    ollamaUrl = "http://localhost:11434",
   ): Promise<void> {
     const existing = new Set<TranscriptionBackend>();
     if (this.txBackend) existing.add(this.txBackend);
@@ -478,44 +614,34 @@ export class DualBackend implements TranscriptionBackend {
     let newTxBackend: TranscriptionBackend;
     let newRxBackend: TranscriptionBackend;
 
-    // Find or create txBackend
-    const foundTx = Array.from(existing).find(
-      (b) =>
-        (b instanceof GemmaBackend && b.variant === txVariant) ||
-        (b instanceof WhisperBackend && txVariant === "Whisper-Tiny")
+    const foundTx = Array.from(existing).find((b) =>
+      matchesBackend(b, txVariant, ollamaUrl),
     );
     if (foundTx) {
       newTxBackend = foundTx;
     } else {
-      newTxBackend =
-        txVariant === "Whisper-Tiny"
-          ? new WhisperBackend(useWebGPU, cacheDir)
-          : new GemmaBackend(txVariant, useWebGPU, cacheDir);
+      newTxBackend = createSingleBackend(txVariant, useWebGPU, cacheDir, ollamaUrl);
     }
 
-    // Find or create rxBackend
     if ((txVariant as string) === rxVariant) {
       newRxBackend = newTxBackend;
     } else {
-      const foundRx = Array.from(existing).find(
-        (b) => b instanceof GemmaBackend && b.variant === rxVariant
+      const foundRx = Array.from(existing).find((b) =>
+        matchesBackend(b, rxVariant, ollamaUrl),
       );
       if (foundRx) {
         newRxBackend = foundRx;
       } else {
-        newRxBackend = new GemmaBackend(rxVariant, useWebGPU, cacheDir);
+        newRxBackend = createSingleBackend(rxVariant, useWebGPU, cacheDir, ollamaUrl);
       }
     }
 
-    // Determine backends to unload
     const toUnload = Array.from(existing).filter(
-      (b) => b !== newTxBackend && b !== newRxBackend
+      (b) => b !== newTxBackend && b !== newRxBackend,
     );
 
-    // Unload them in parallel and await their disposal
     await Promise.all(toUnload.map((b) => b.unload()));
 
-    // Assign new backends
     this.txBackend = newTxBackend;
     this.rxBackend = newRxBackend;
   }

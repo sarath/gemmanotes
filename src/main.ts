@@ -2,7 +2,7 @@
 
 import { FileSystemAdapter, MarkdownView, Notice, Plugin, TFile } from "obsidian";
 import * as path from "path";
-import { DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_SETTINGS, isOllamaModel } from "./types";
 import type { GemmaNotesSettings, TranscriptionJob } from "./types";
 import { GemmaNotesSettingTab } from "./settings";
 import { Recorder } from "./recorder";
@@ -97,8 +97,10 @@ export default class GemmaNotesPlugin extends Plugin {
         isEnabled: () => this.settings.enableSelectionRewrite,
         getMinWords: () => this.settings.selectionRewriteMinWords,
         isModelReady: () => {
-          const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
-          if (!rxDownloaded) {
+          const rxReady =
+            isOllamaModel(this.settings.rewriteModel) ||
+            this.settings.downloadedModels[this.settings.rewriteModel];
+          if (!rxReady) {
             new Notice("GemmaNotes: download the selected rewrite model in settings first.");
             return false;
           }
@@ -149,6 +151,7 @@ export default class GemmaNotesPlugin extends Plugin {
           this.settings.rewriteModel,
           this.webGPUAvailable,
           this.getCacheDir(),
+          this.settings.ollamaUrl,
         );
         this.loadPromise = null;
         void this.loadModelsIfDownloaded();
@@ -162,6 +165,7 @@ export default class GemmaNotesPlugin extends Plugin {
       this.settings.rewriteModel,
       this.webGPUAvailable,
       this.getCacheDir(),
+      this.settings.ollamaUrl,
     );
     this.loadPromise = null;
 
@@ -182,7 +186,6 @@ export default class GemmaNotesPlugin extends Plugin {
       this.manifest.dir || `.obsidian/plugins/${this.manifest.id}`,
       ".cache"
     );
-    this.loadPromise = null;
   }
 
   /** Download + load the selected model, reporting progress to the caller. */
@@ -190,8 +193,12 @@ export default class GemmaNotesPlugin extends Plugin {
     this.loadPromise = this.backend.load(onProgress);
     await this.loadPromise;
 
-    this.settings.downloadedModels[this.settings.transcriptionModel] = true;
-    this.settings.downloadedModels[this.settings.rewriteModel] = true;
+    if (!isOllamaModel(this.settings.transcriptionModel)) {
+      this.settings.downloadedModels[this.settings.transcriptionModel] = true;
+    }
+    if (!isOllamaModel(this.settings.rewriteModel)) {
+      this.settings.downloadedModels[this.settings.rewriteModel] = true;
+    }
     await this.saveSettings();
   }
 
@@ -206,9 +213,13 @@ export default class GemmaNotesPlugin extends Plugin {
   }
 
   private async startRecording(): Promise<void> {
-    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
-    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
-    if (!txDownloaded || !rxDownloaded) {
+    const txReady =
+      isOllamaModel(this.settings.transcriptionModel) ||
+      this.settings.downloadedModels[this.settings.transcriptionModel];
+    const rxReady =
+      isOllamaModel(this.settings.rewriteModel) ||
+      this.settings.downloadedModels[this.settings.rewriteModel];
+    if (!txReady || !rxReady) {
       new Notice("GemmaNotes: download the selected models in settings first.");
       return;
     }
@@ -217,7 +228,10 @@ export default class GemmaNotesPlugin extends Plugin {
       new Notice("GemmaNotes: open a note to record into.");
       return;
     }
-    if (!this.webGPUAvailable && !this.gpuWarned) {
+    const usesLocalModel =
+      !isOllamaModel(this.settings.transcriptionModel) ||
+      !isOllamaModel(this.settings.rewriteModel);
+    if (usesLocalModel && !this.webGPUAvailable && !this.gpuWarned) {
       new Notice(
         "GemmaNotes: WebGPU unavailable — transcription will run on CPU and " +
           "be slow.",
@@ -315,9 +329,15 @@ export default class GemmaNotesPlugin extends Plugin {
   }
 
   private async loadModelsIfDownloaded(): Promise<void> {
-    const txDownloaded = this.settings.downloadedModels[this.settings.transcriptionModel];
-    const rxDownloaded = this.settings.downloadedModels[this.settings.rewriteModel];
-    if (txDownloaded && rxDownloaded) {
+    const txLocal = !isOllamaModel(this.settings.transcriptionModel);
+    const rxLocal = !isOllamaModel(this.settings.rewriteModel);
+    if (!txLocal && !rxLocal) {
+      return;
+    }
+
+    const txReady = !txLocal || this.settings.downloadedModels[this.settings.transcriptionModel];
+    const rxReady = !rxLocal || this.settings.downloadedModels[this.settings.rewriteModel];
+    if (txReady && rxReady) {
       if (this.loadPromise) return;
 
       this.stateBar.addClass("is-transcribing");

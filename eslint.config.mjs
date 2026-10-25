@@ -21,9 +21,10 @@ export default tseslint.config(
     },
     rules: {
       "obsidianmd/ui/sentence-case": ["error", {
-        "brands": ["GemmaNotes", "gemmanotes"],
-        "acronyms": ["E2B", "E4B", "BCP-47"],
+        "brands": ["GemmaNotes", "gemmanotes", "Ollama"],
+        "acronyms": ["E2B", "E4B", "BCP-47", "URL"],
         "ignoreWords": ["cursor"],
+        "ignoreRegex": ["^https?://"],
         "enforceCamelCaseLower": true
       }],
     },

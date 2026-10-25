@@ -1,8 +1,14 @@
 /** Shared types and settings for GemmaNotes. */
 
-export type TranscriptionModelVariant = "E2B" | "E4B" | "Whisper-Tiny";
-export type RewriteModelVariant = "E2B" | "E4B";
+export type OllamaModelVariant = "Ollama-E2B" | "Ollama-E4B";
+export type LocalModelVariant = "E2B" | "E4B" | "Whisper-Tiny";
+export type TranscriptionModelVariant = LocalModelVariant | OllamaModelVariant;
+export type RewriteModelVariant = "E2B" | "E4B" | OllamaModelVariant;
 export type ModelVariant = TranscriptionModelVariant | RewriteModelVariant;
+
+export function isOllamaModel(variant: string): variant is OllamaModelVariant {
+  return variant === "Ollama-E2B" || variant === "Ollama-E4B";
+}
 
 export type Placement = "cursor" | "end" | "heading";
 export type Style = "cleaned" | "verbatim";
@@ -17,6 +23,8 @@ export interface GemmaNotesSettings {
   transcriptionModel: TranscriptionModelVariant;
   /** Which model to use for rewriting. */
   rewriteModel: RewriteModelVariant;
+  /** Base URL for the local Ollama server. */
+  ollamaUrl: string;
   /** Set true for each model that has finished downloading at least once. */
   downloadedModels: Record<string, boolean>;
 
@@ -41,6 +49,7 @@ export interface GemmaNotesSettings {
 export const DEFAULT_SETTINGS: GemmaNotesSettings = {
   transcriptionModel: "E2B",
   rewriteModel: "E2B",
+  ollamaUrl: "http://localhost:11434",
   downloadedModels: {
     E2B: false,
     E4B: false,
@@ -57,14 +66,20 @@ export const DEFAULT_SETTINGS: GemmaNotesSettings = {
 };
 
 /** ONNX model repo ids on the Hugging Face hub. */
-export const MODEL_REPOS: Record<ModelVariant, string> = {
+export const MODEL_REPOS: Record<LocalModelVariant, string> = {
   E2B: "onnx-community/gemma-4-E2B-it-ONNX",
   E4B: "onnx-community/gemma-4-E4B-it-ONNX",
   "Whisper-Tiny": "onnx-community/whisper-tiny.en",
 };
 
+/** Ollama model tags for each Ollama variant. */
+export const OLLAMA_MODELS: Record<OllamaModelVariant, string> = {
+  "Ollama-E2B": "gemma4:e2b",
+  "Ollama-E4B": "gemma4:e4b",
+};
+
 /** Approximate on-disk download size, shown in settings. */
-export const MODEL_SIZES: Record<ModelVariant, string> = {
+export const MODEL_SIZES: Record<LocalModelVariant, string> = {
   E2B: "~3.2 GB",
   E4B: "~5 GB",
   "Whisper-Tiny": "~40 MB",

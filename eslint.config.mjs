@@ -24,6 +24,7 @@ export default tseslint.config(
         "brands": ["GemmaNotes", "gemmanotes", "Ollama"],
         "acronyms": ["E2B", "E4B", "BCP-47", "URL"],
         "ignoreWords": ["cursor"],
+        "ignoreRegex": ["^https?://"],
         "enforceCamelCaseLower": true
       }],
     },
